@@ -1,4 +1,5 @@
 import aiohttp
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -223,3 +224,44 @@ def test_unload_model_reports_error_when_ollama_unreachable(voicechat2, monkeypa
     data = response.json()
     assert data["unloaded"] == []
     assert "error" in data
+
+
+def test_custom_scenario_round_trip(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+
+    assert voicechat2.load_custom_scenarios(path) == {}
+
+    created = voicechat2.create_custom_scenario("airport", "Airport", "Scenario: ...", path)
+    assert created == {"label": "Airport", "prompt": "Scenario: ..."}
+    assert voicechat2.load_custom_scenarios(path) == {"airport": created}
+
+    merged = voicechat2.get_all_scenarios(path)
+    assert merged["airport"] == created
+    assert merged["general"] == voicechat2.SCENARIOS["general"]
+
+    voicechat2.delete_custom_scenario("airport", path)
+    assert voicechat2.load_custom_scenarios(path) == {}
+    assert "airport" not in voicechat2.get_all_scenarios(path)
+
+
+def test_create_custom_scenario_rejects_builtin_id(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+
+    with pytest.raises(ValueError):
+        voicechat2.create_custom_scenario("general", "General", "...", path)
+    assert voicechat2.load_custom_scenarios(path) == {}
+
+
+def test_create_custom_scenario_rejects_duplicate_custom_id(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+    voicechat2.create_custom_scenario("airport", "Airport", "...", path)
+
+    with pytest.raises(ValueError):
+        voicechat2.create_custom_scenario("airport", "Airport again", "...", path)
+
+
+def test_delete_custom_scenario_missing_id_raises(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+
+    with pytest.raises(ValueError):
+        voicechat2.delete_custom_scenario("nope", path)

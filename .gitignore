@@ -138,6 +138,9 @@ venv.bak/
 # local run state (run.sh/stop.sh)
 .run/
 
+# custom scenarios created via the UI (voicechat2.py CUSTOM_SCENARIOS_PATH)
+/custom_scenarios.json
+
 # Spyder project settings
 .spyderproject
 .spyproject

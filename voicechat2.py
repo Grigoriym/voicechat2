@@ -107,6 +107,51 @@ SCENARIOS = {
 }
 
 
+# Custom scenarios created via the UI (step 6), stored as a gitignored JSON
+# file of {id: {"label": ..., "prompt": ...}} merged with the hardcoded
+# SCENARIOS above at request time. A custom scenario can't reuse a built-in id.
+CUSTOM_SCENARIOS_PATH = os.getenv("CUSTOM_SCENARIOS_PATH", "custom_scenarios.json")
+
+
+def load_custom_scenarios(path: str = CUSTOM_SCENARIOS_PATH) -> dict:
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+def save_custom_scenarios(scenarios: dict, path: str = CUSTOM_SCENARIOS_PATH) -> None:
+    with open(path, "w") as f:
+        json.dump(scenarios, f, indent=2)
+
+
+def create_custom_scenario(
+    scenario_id: str, label: str, prompt: str, path: str = CUSTOM_SCENARIOS_PATH
+) -> dict:
+    if scenario_id in SCENARIOS:
+        raise ValueError(f"'{scenario_id}' is a built-in scenario id")
+    custom = load_custom_scenarios(path)
+    if scenario_id in custom:
+        raise ValueError(f"custom scenario '{scenario_id}' already exists")
+    custom[scenario_id] = {"label": label, "prompt": prompt}
+    save_custom_scenarios(custom, path)
+    return custom[scenario_id]
+
+
+def delete_custom_scenario(scenario_id: str, path: str = CUSTOM_SCENARIOS_PATH) -> None:
+    custom = load_custom_scenarios(path)
+    if scenario_id not in custom:
+        raise ValueError(f"custom scenario '{scenario_id}' not found")
+    del custom[scenario_id]
+    save_custom_scenarios(custom, path)
+
+
+def get_all_scenarios(path: str = CUSTOM_SCENARIOS_PATH) -> dict:
+    merged = dict(SCENARIOS)
+    merged.update(load_custom_scenarios(path))
+    return merged
+
+
 def build_system_message(scenario: str) -> dict:
     scenario_prompt = SCENARIOS.get(scenario, SCENARIOS[DEFAULT_SCENARIO])["prompt"]
     content = BASE_SYSTEM_PROMPT

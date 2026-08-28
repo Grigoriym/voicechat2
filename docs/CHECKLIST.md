@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 4/12 — Current step: none
+Progress: 5/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -111,10 +111,20 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       (all ok), stopped the `srt` container and curled again (srt reports the connection-refused
       detail, ollama/tts stay ok), restarted `srt` and confirmed it went back to ok.
 
-- [ ] 5. Custom-scenario storage
+- [x] 5. Custom-scenario storage
       Load/save custom scenarios to a JSON file (gitignored) merged with the hardcoded
       `SCENARIOS` at request time. A custom scenario can't reuse a built-in id.
       Verify: pytest covering create/list/delete round-trip against a temp file.
+      Note: added `load_custom_scenarios`/`save_custom_scenarios`/`create_custom_scenario`/
+      `delete_custom_scenario`/`get_all_scenarios` to `voicechat2.py`, all taking an explicit
+      `path` param (default `CUSTOM_SCENARIOS_PATH` env var, default `custom_scenarios.json`)
+      so tests can round-trip against a `tmp_path` file without touching a real one. Storage
+      only, per this step's scope — the HTTP endpoints, and wiring `build_system_message`/
+      `set_scenario` to see custom scenarios, are step 6's job. `create_custom_scenario` raises
+      `ValueError` for a built-in id or an already-existing custom id (edits are PUT in step 6,
+      not create). Added `custom_scenarios.json` to `.gitignore`. 4 new pytest cases in
+      `test/test_voicechat2.py`; `ruff check`, `ruff format --check`, `mypy`, `pytest -q`
+      (29 passed) all green.
 
 - [ ] 6. Scenario CRUD endpoints
       `POST /api/scenarios` (create), `PUT /api/scenarios/{id}` (edit, custom only),
