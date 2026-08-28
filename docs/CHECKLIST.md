@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 7/12 — Current step: none
+Progress: 8/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -174,12 +174,38 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       on the new markup. `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (37 passed)
       all still green (no Python touched this step, confirmed nothing broke).
 
-- [ ] 8. Setup screen wiring (`ui/js/setup.js`)
+- [x] 8. Setup screen wiring (`ui/js/setup.js`)
       Fetch/populate scenarios and models, handle create/clone/edit/delete, run health checks
       (including a `getUserMedia` mic-permission probe), store the chosen scenario id + model in
       `sessionStorage`, navigate to `chat.html` on Start.
       Verify: same manual pass as step 7, plus confirm the `sessionStorage` keys are set
       correctly (devtools).
+      Note: reused the old page's model-select/unload-button fetch logic (git history at
+      `fc80aab:ui/index.html`) rather than rewriting it from scratch. New-scenario ids are
+      generated client-side as `slugify(label)-{Date.now().toString(36)}` (server rejects
+      duplicate/built-in ids with 400; the timestamp suffix makes a collision practically
+      impossible rather than adding retry logic for it). Start-button gating is scenario+model
+      only, matching step 7's markup note — not gated on health-check results. The mic health
+      check acquires a real `getUserMedia` stream and drives a live level meter (peak-based,
+      `.loud`/`.clip` classes already defined in `setup.css`); the stream is released on
+      `beforeunload` since `chat.html` (step 9) will acquire its own. `sessionStorage` keys are
+      `vc2-scenario`/`vc2-model`, read back on load so a returning visit keeps the prior choice,
+      and written on Start just before navigating to `chat.html` (that page doesn't exist until
+      step 9, so the actual navigation wasn't exercised — verified the keys get set instead, see
+      below). No JS test harness exists in this project, so verification was the manual browser
+      pass the step's Verify line asks for, via Chrome automation (connected this session):
+      rebuilt+redeployed the `vc2` container; loaded `localhost:8010` and confirmed scenarios,
+      model dropdown (`llama3.1:8b` default selected), and all four health badges (ollama/srt/
+      tts/mic) render `ok` with no console errors; exercised the full scenario CRUD loop —
+      created a custom scenario (auto-selected after save), edited its name (edit persisted and
+      stayed selected), cloned a built-in ("Shopping" → pre-filled "Shopping (copy)" + its
+      prompt text, cancelled without saving), then deleted the custom one (`window.confirm`
+      stubbed via the JS tool to avoid a blocking native dialog, per the browser-automation
+      guidance against triggering alerts) — confirmed via a follow-up `curl /api/scenarios` that
+      no custom scenarios leaked past the test. Start button had no `disabled` attribute once a
+      scenario+model were selected (true by default, since both auto-select). `ruff check`,
+      `ruff format --check`, `mypy`, `pytest -q` (37 passed, unchanged — no Python touched this
+      step) all still green.
 
 - [ ] 9. Conversation screen (`ui/chat.html`), extracted from the current `index.html`
       Move the recording/transcript/status UI here, trimmed of the model and scenario dropdowns
