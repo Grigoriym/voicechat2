@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 10/12 — Current step: none
+Progress: 11/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -269,11 +269,23 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       numbers during a turn" wasn't re-verified live here — the update logic itself is unchanged
       from step 9's working version, only its container markup changed.
 
-- [ ] 11. Retire the old single-page markup/JS
+- [x] 11. Retire the old single-page markup/JS
       Delete what's now dead from the pre-rework `index.html`/inline script; keep whatever's
       still used (audio recording, websocket handling) factored into `ui/js/chat.js`.
       Verify: `ruff check . && ruff format . && mypy . && pytest -q` still pass; grep confirms
       nothing still references a removed id or function.
+      Note: nothing left to delete — steps 7 (index.html rewritten from scratch) and 9
+      (chat.html/chat.js assembled fresh, pulling only the still-used pieces from the
+      pre-rework page via git history) already retired the old single-page markup/JS as they
+      went, rather than leaving dead code for this step to clean up later. Verified rather than
+      assumed: diffed the pre-rework `index.html` (`git show 219f120:ui/index.html`, the last
+      commit before step 7) against the current pages — its two dropped ids (`scenarioSelect`,
+      `scenarioStatus`, replaced by the new scenario-list/form UI) have zero references anywhere
+      in `ui/`, `voicechat2.py`, or `test/`; every id in the current `index.html`/`chat.html` has
+      a matching `getElementById`/`querySelector` in `setup.js`/`chat.js` and vice versa; every
+      function defined in `chat.js`/`setup.js` is called at least once (checked by grepping each
+      function name's occurrence count). `ruff check`, `ruff format --check`, `mypy`, `pytest -q`
+      (37 passed) all green, unchanged from step 10 since no files needed touching.
 
 - [ ] 12. Docker/static-serving check
       Confirm the `/` route and the `/ui` `StaticFiles` mount in `voicechat2.py` still serve the
