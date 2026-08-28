@@ -34,6 +34,15 @@ updates `conversation_manager.sessions[id]["model"]`, read fresh by
 Port 8000 (upstream's default for the orchestrator) is already held by
 something else on this machine, so this fork runs on **8010**.
 
+Ollama keeps a model resident in VRAM for `OLLAMA_KEEP_ALIVE` (default 5m)
+after its last request — ~5.5GB for `mistral:7b` on this machine, confirmed
+via `rocm-smi`. The "GPU-Speicher freigeben" button in the UI (next to the
+model dropdown) calls `POST /api/unload-model`, which asks Ollama's
+`/api/ps` what's loaded and unloads each one immediately via
+`POST /api/generate` with `keep_alive: 0` — the same mechanism the `ollama
+stop <model>` CLI command uses, confirmed by watching VRAM usage drop
+immediately after calling it.
+
 ## Running
 
 Two ways to run the stack — don't run both at once, they'll fight over

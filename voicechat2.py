@@ -392,6 +392,38 @@ async def list_models():
         return {"models": [LLM_MODEL], "default": LLM_MODEL}
 
 
+@app.post("/api/unload-model")
+async def unload_model():
+    """Frees the GPU memory Ollama holds by asking it to unload whatever's
+    currently loaded (keep_alive: 0), rather than waiting out its idle
+    timeout. See CLAUDE.md."""
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                f"{OLLAMA_BASE}/api/ps", timeout=aiohttp.ClientTimeout(total=5)
+            ) as response,
+        ):
+            data = await response.json()
+        loaded = [m["name"] for m in data.get("models", [])]
+
+        for name in loaded:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    f"{OLLAMA_BASE}/api/generate",
+                    json={"model": name, "keep_alive": 0},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as response,
+            ):
+                await response.read()
+
+        return {"unloaded": loaded}
+    except Exception as e:
+        logger.error(f"Failed to unload Ollama models: {str(e)}")
+        return {"unloaded": [], "error": str(e)}
+
+
 @app.get("/")
 def read_root():
     return FileResponse("ui/index.html")

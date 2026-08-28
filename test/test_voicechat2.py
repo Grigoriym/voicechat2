@@ -1,3 +1,51 @@
+import aiohttp
+from fastapi.testclient import TestClient
+
+
+class _FakeAsyncCM:
+    """Wraps a value so `async with x() as y` yields it unchanged."""
+
+    def __init__(self, result):
+        self._result = result
+
+    async def __aenter__(self):
+        return self._result
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+    async def read(self):
+        return b""
+
+
+def _fake_client_session(responses):
+    """Returns a fake `aiohttp.ClientSession` factory. `responses` maps
+    (method, url) -> JSON payload for `.get`/`.post` calls made against it."""
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def get(self, url, **kwargs):
+            return _FakeAsyncCM(_FakeResponse(responses[("GET", url)]))
+
+        def post(self, url, **kwargs):
+            return _FakeAsyncCM(_FakeResponse(responses[("POST", url)]))
+
+    return lambda *args, **kwargs: _FakeSession()
+
+
 def test_create_session_returns_isolated_sessions(voicechat2):
     mgr = voicechat2.ConversationManager()
     a = mgr.create_session()
@@ -66,3 +114,48 @@ def test_calculate_latencies(voicechat2):
         "llm_ttfs": 2,
         "tts_duration": 1,
     }
+
+
+def test_unload_model_asks_ollama_to_unload_whatever_is_loaded(voicechat2, monkeypatch):
+    responses = {
+        ("GET", "http://localhost:11434/api/ps"): {"models": [{"name": "mistral:7b"}]},
+        ("POST", "http://localhost:11434/api/generate"): {"done_reason": "unload"},
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.post("/api/unload-model")
+
+    assert response.status_code == 200
+    assert response.json() == {"unloaded": ["mistral:7b"]}
+
+
+def test_unload_model_returns_empty_when_nothing_loaded(voicechat2, monkeypatch):
+    responses: dict = {("GET", "http://localhost:11434/api/ps"): {"models": []}}
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.post("/api/unload-model")
+
+    assert response.json() == {"unloaded": []}
+
+
+def test_unload_model_reports_error_when_ollama_unreachable(voicechat2, monkeypatch):
+    class _FailingSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def get(self, *args, **kwargs):
+            raise aiohttp.ClientConnectionError("boom")
+
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", lambda *a, **kw: _FailingSession())
+    client = TestClient(voicechat2.app)
+
+    response = client.post("/api/unload-model")
+
+    data = response.json()
+    assert data["unloaded"] == []
+    assert "error" in data
