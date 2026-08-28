@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 9/12 — Current step: none
+Progress: 10/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -248,11 +248,26 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       that this code path is untouched by this step and pre-existing, not a regression — logged
       as `docs/revisit.md` #1 rather than fixed here (out of scope for a UI-extraction step).
 
-- [ ] 10. Collapsible debug/metrics panel
+- [x] 10. Collapsible debug/metrics panel
       Move the latency-metrics table into a `<details>` section on `chat.html`, closed by
       default.
       Verify: manual — panel starts closed, opens on click, still updates with real numbers
       during a turn.
+      Note: swapped the `#latencyMetrics` `<div class="card">` for `<details id="latencyMetrics"
+      class="card"><summary>Debug: latency metrics</summary>…</details>` — no id/JS changes, so
+      `chat.js`'s existing `getElementById` writes into the table cells (`totalVoiceToVoice`,
+      `srtDuration`, etc.) are untouched and unaffected by the collapsed/expanded state (`hidden`
+      via the browser's native `<details>` behavior, not `display:none`, so DOM writes still land
+      while closed). Added `#latencyMetrics summary` styling in `chat.css` (bold, muted color,
+      pointer cursor, margin-bottom when open) since no `<details>`/`<summary>` styling existed
+      anywhere in the theme yet. Rebuilt+redeployed `vc2` (also rebuilt `srt`/`tts` — same base
+      image layer, no code changes to those two this step); verified live via Chrome automation:
+      full Setup → Start flow landed on `/chat.html` with the panel showing "▶ Debug: latency
+      metrics" collapsed by default, clicking it expanded to "▼" and revealed the table with its
+      0ms placeholder values, no console errors on load or after. As step 9 noted, real spoken
+      audio isn't exercisable through this automation (no real mic input), so "updates with real
+      numbers during a turn" wasn't re-verified live here — the update logic itself is unchanged
+      from step 9's working version, only its container markup changed.
 
 - [ ] 11. Retire the old single-page markup/JS
       Delete what's now dead from the pre-rework `index.html`/inline script; keep whatever's

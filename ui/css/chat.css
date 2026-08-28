@@ -127,6 +127,16 @@
     margin: 0 auto;
 }
 
+#latencyMetrics summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: var(--color-text-muted);
+}
+
+#latencyMetrics[open] summary {
+    margin-bottom: var(--space-3);
+}
+
 #latencyMetrics table {
     width: 100%;
     border-collapse: collapse;
