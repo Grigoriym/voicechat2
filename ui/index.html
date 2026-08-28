@@ -360,7 +360,7 @@
         }
 
 
-        function startRecording() {
+        async function startRecording() {
             if (!isRecording) {
                 stopLatencyMeasurement();
 
@@ -372,6 +372,15 @@
                 isRecording = true;
                 recordingStartTime = Date.now();
                 updateTimerDisplay();
+
+                // Chrome suspends AudioContext until a user gesture explicitly
+                // resumes it; without this the recorder produces no audio data
+                // even though start()/stop() and the UI both look normal.
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                    log(`AudioContext resumed (was suspended)`);
+                }
+
                 recorder.start();
                 document.getElementById('status').textContent = 'Recording...';
             }
