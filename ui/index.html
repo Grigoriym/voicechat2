@@ -13,8 +13,7 @@
             font-family: Arial, sans-serif;
             display: flex;
             justify-content: center;
-            align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
             background-color: #f0f0f0;
         }
@@ -22,6 +21,7 @@
             text-align: center;
             background-color: white;
             padding: 2rem;
+            margin: 2rem 0;
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             max-width: 800px;
@@ -95,15 +95,123 @@
             background-color: #ff0000;
             color: white;
         }
+
+        .lang-badge {
+            display: inline-block;
+            background: #eef4ff;
+            color: #1a4a8a;
+            border: 1px solid #c9dcf5;
+            border-radius: 999px;
+            padding: 0.3rem 0.9rem;
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        .meter-wrap {
+            margin: 0.5rem 0 1.2rem;
+        }
+        .meter-label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+        .meter-track {
+            width: 100%;
+            height: 18px;
+            background: #e6e6e6;
+            border-radius: 9px;
+            overflow: hidden;
+            border: 1px solid #d0d0d0;
+        }
+        .meter-fill {
+            height: 100%;
+            width: 0%;
+            background: #4caf50;
+            transition: width 60ms linear, background-color 120ms linear;
+        }
+        .meter-fill.loud { background: #ffb300; }
+        .meter-fill.clip { background: #e53935; }
+        .meter-hint {
+            font-size: 0.78rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+
+        .record-btn {
+            width: 100%;
+            max-width: 22rem;
+            font-size: 1.15rem;
+            font-weight: bold;
+            padding: 1.1rem 1rem;
+            border-radius: 10px;
+            border: 2px solid #1a4a8a;
+            background: #eef4ff;
+            color: #1a4a8a;
+        }
+        .record-btn.recording {
+            background: #e53935;
+            border-color: #e53935;
+            color: white;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(229,57,53,0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(229,57,53,0); }
+            100% { box-shadow: 0 0 0 0 rgba(229,57,53,0); }
+        }
+
+        .secondary-btn {
+            width: auto;
+            font-size: 0.85rem;
+            padding: 0.35rem 0.8rem;
+            background: white;
+            border: 1px solid #ccc;
+            color: #555;
+        }
+
+        .status-badge {
+            display: inline-block;
+            font-size: 1.1rem;
+            font-weight: bold;
+            padding: 0.4rem 1.2rem;
+            border-radius: 8px;
+            margin-top: 0.8rem;
+        }
+        .status-ready { background: #eee; color: #444; }
+        .status-recording { background: #fdecea; color: #e53935; }
+        .status-processing { background: #fff6e0; color: #b8860b; }
+        .status-speaking { background: #e8f5e9; color: #2e7d32; }
+        .status-error { background: #fdecea; color: #b71c1c; }
+
+        #lastCapture {
+            margin-top: 0.6rem;
+            font-size: 0.9rem;
+            font-family: monospace;
+        }
+        #lastCapture.ok { color: #2e7d32; }
+        #lastCapture.bad { color: #b71c1c; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>voicechat2</h1>
+        <div class="lang-badge">🇩🇪 Deutsch — Whisper (STT) → Ollama (LLM) → Piper (TTS)</div>
+
+        <div class="meter-wrap">
+            <div class="meter-label">Mikrofonpegel — live, auch ohne Aufnahme (beweist, dass der Browser das Mikro hört)</div>
+            <div class="meter-track"><div id="micMeterFill" class="meter-fill"></div></div>
+            <div class="meter-hint" id="micMeterHint">Warte auf Mikrofonzugriff…</div>
+        </div>
+
+        <button id="recordButton" class="record-btn">🎤 Gedrückt halten zum Sprechen</button>
+        <p>oder Leertaste gedrückt halten</p>
+
+        <div id="status" class="status-badge status-ready">Bereit</div>
+        <div id="lastCapture"></div>
+
         <div id="timer">00:00:000</div>
-        <button id="vadToggle">Enable Voice Auto Detection</button>
-        <button id="recordButton">Press and Hold to Chat</button>
-        <p>You can also hold the space bar to chat!</p>
+        <button id="vadToggle" class="secondary-btn">Automatische Spracherkennung aktivieren (experimentell)</button>
+
         <div id="latencyMetrics">
             <table>
                 <tr>
@@ -136,7 +244,6 @@
                 </tr>
             </table>
         </div>
-        <div id="status">Ready</div>
         <div id="conversationLog"></div>
         <div id="logArea"></div>
     </div>
@@ -148,6 +255,21 @@
         const status = document.getElementById('status');
         const logArea = document.getElementById('logArea');
         const timerDisplay = document.getElementById('timer');
+
+        // Recolor the status badge whenever its text changes, instead of
+        // touching every one of the many call sites that set it directly.
+        const STATUS_CLASS_MAP = {
+            'ready': 'status-ready',
+            'recording...': 'status-recording',
+            'processing...': 'status-processing',
+            'speaking': 'status-speaking',
+        };
+        new MutationObserver(() => {
+            const text = status.textContent.trim().toLowerCase();
+            let cls = STATUS_CLASS_MAP[text];
+            if (!cls) cls = text.includes('error') || text.includes('disconnect') ? 'status-error' : 'status-ready';
+            status.className = 'status-badge ' + cls;
+        }).observe(status, { childList: true, characterData: true, subtree: true });
 
         // Network
         let startTime;
@@ -382,6 +504,7 @@
                 }
 
                 recorder.start();
+                recordButton.classList.add('recording');
                 document.getElementById('status').textContent = 'Recording...';
             }
         }
@@ -389,6 +512,7 @@
         async function stopRecording() {
             if (isRecording) {
                 isRecording = false;
+                recordButton.classList.remove('recording');
                 try {
                     await recorder.stop();
                     log('Recording stopped successfully');
@@ -514,66 +638,126 @@
         async function createSourceNode() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                return audioContext.createMediaStreamSource(stream);
+                return { stream, sourceNode: audioContext.createMediaStreamSource(stream) };
             } catch {
                 // If we don't resample then recording will be 48K, 4x too slow...
                 recordButton.style.display = 'None';
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                return audioContext.createMediaStreamSource(stream);
+                return { stream, sourceNode: audioContext.createMediaStreamSource(stream) };
             }
         }
 
+        let analyser;
+        let micMeterRunning = false;
+
+        function startMicMeter(sourceNode) {
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 512;
+            sourceNode.connect(analyser);
+
+            const data = new Uint8Array(analyser.fftSize);
+            const fill = document.getElementById('micMeterFill');
+            const hint = document.getElementById('micMeterHint');
+            micMeterRunning = true;
+
+            function tick() {
+                if (!micMeterRunning) return;
+                analyser.getByteTimeDomainData(data);
+                let peak = 0;
+                for (let i = 0; i < data.length; i++) {
+                    peak = Math.max(peak, Math.abs(data[i] - 128));
+                }
+                const level = Math.min(1, peak / 100); // 128 is silence; ~100 is loud
+                fill.style.width = `${(level * 100).toFixed(0)}%`;
+                fill.classList.toggle('loud', level > 0.4 && level <= 0.8);
+                fill.classList.toggle('clip', level > 0.8);
+                if (level > 0.03) {
+                    hint.textContent = 'Mikrofon empfängt Ton ✓';
+                } else {
+                    hint.textContent = 'Kein Ton erkannt — sprich, um den Balken zu testen';
+                }
+                requestAnimationFrame(tick);
+            }
+            tick();
+        }
+
+        function reportCapture(blob, durationS) {
+            const captureEl = document.getElementById('lastCapture');
+            if (blob.size < 500) {
+                captureEl.className = 'bad';
+                captureEl.textContent = `⚠️ Letzte Aufnahme: ${blob.size} Bytes / ${durationS}s — praktisch leer, wurde nichts aufgenommen`;
+            } else {
+                captureEl.className = 'ok';
+                captureEl.textContent = `✓ Letzte Aufnahme: ${blob.size} Bytes / ${durationS}s`;
+            }
+        }
+
+        // Uses the browser's native MediaRecorder instead of the bundled
+        // symbl-opus-encdec library. That library loads its actual Opus
+        // encoder from a hardcoded third-party URL at runtime (a Symbl.ai
+        // storage bucket that now returns 403), and even redirecting it to a
+        // still-live mirror wasn't enough -- something else inside that
+        // 2-year-unmaintained encoder chain (likely a second, also-dead
+        // asset it fetches internally) still hung forever with zero errors:
+        // start()/stop() resolved normally, but onstart/ondataavailable/
+        // onstop never fired, so every recording was silently 0 bytes no
+        // matter what the UI showed. MediaRecorder needs no external script,
+        // no worker, and encodes opus (in a WebM container) natively --
+        // ffmpeg inside the whisper webservice decodes that container the
+        // same as it already did the old ogg/opus one.
+        //
+        // NOTE: the VAD ("Automatische Spracherkennung") path still uses the
+        // old library's monkeypatched encodeAudio() and has the same root
+        // issue -- not fixed here, since push-to-talk is the primary path.
         async function initializeRecorder() {
-            const sourceNode = await createSourceNode();
-            const config = {
-                numberOfChannels: 1,
-                encoderSampleRate: 16000,
-                encoderFrameSize: 20,
-                maxFramesPerPage: 40,
-                encoderComplexity: 6,
-                encoderApplication: 2048, // Voice
-                originalSampleRate: 16000,
-                streamPages: true,
-                sourceNode: sourceNode
-            };
+            const { stream, sourceNode } = await createSourceNode();
+            startMicMeter(sourceNode);
 
-            recorder = new Recorder(config);
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus' : '';
+            const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
-            recorder.ondataavailable = (typedArray) => {
-                log(`Data available: ${typedArray.length} bytes`);
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                    socket.send(typedArray);
+            let audioChunks = [];
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    log(`Data available: ${e.data.size} bytes`);
+                    audioChunks.push(e.data);
                 }
             };
 
-            let audioChunks = [];
+            recorder = {
+                start() {
+                    audioChunks = [];
+                    mediaRecorder.start();
+                    log('Recording started');
+                    status.textContent = 'Recording...';
+                    startTime = Date.now();
+                    timerInterval = setInterval(updateTimer, 10);
+                    return Promise.resolve();
+                },
+                stop() {
+                    return new Promise((resolve) => {
+                        mediaRecorder.onstop = () => {
+                            log('Recording stopped');
+                            status.textContent = 'Processing...';
+                            clearInterval(timerInterval);
 
-            recorder.ondataavailable = (typedArray) => {
-                log(`Data available: ${typedArray.length} bytes`);
-                audioChunks.push(typedArray);
-            };
+                            const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                            const durationS = ((Date.now() - recordingStartTime) / 1000).toFixed(1);
+                            audioChunks = [];
+                            reportCapture(blob, durationS);
 
-            recorder.onstart = () => {
-                log('Recording started');
-                status.textContent = 'Recording...';
-                startTime = Date.now();
-                timerInterval = setInterval(updateTimer, 10);
-            };
-
-            recorder.onstop = () => {
-                log('Recording stopped');
-                status.textContent = 'Processing...';
-                clearInterval(timerInterval);
-
-                const blob = new Blob(audioChunks, { 'type' : 'audio/ogg; codecs=opus' });
-                audioChunks = []; // Clear the chunks for the next recording
-            
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                    log(`Sending audio file: ${blob.size} bytes`);
-                    socket.send(blob);
-                } else {
-                    log('WebSocket is not open. Cannot send audio.');
+                            if (socket && socket.readyState === WebSocket.OPEN) {
+                                log(`Sending audio file: ${blob.size} bytes`);
+                                socket.send(blob);
+                            } else {
+                                log('WebSocket is not open. Cannot send audio.');
+                            }
+                            resolve();
+                        };
+                        mediaRecorder.stop();
+                    });
                 }
             };
         }
@@ -707,9 +891,7 @@
         // Initialize recorder and WebSocket when the page loads
         window.onload = async () => {
             await initializeRecorder();
-            await recorder.initialize;
-            console.log('Recorder object:', recorder);
-            console.log('Encoder object:', recorder.encoder);
+            log('Recorder ready (MediaRecorder)');
 
             try {
                 await initializeWebSocketAsync();
