@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 6/12 — Current step: none
+Progress: 7/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -151,12 +151,28 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       against `localhost:8010`, all behaved as expected; `custom_scenarios.json` lives inside the
       container only (not bind-mounted), confirmed nothing leaked into the repo afterward.
 
-- [ ] 7. Setup screen markup + layout (`ui/index.html` rewritten)
+- [x] 7. Setup screen markup + layout (`ui/index.html` rewritten)
       Scenario list (built-ins badged), "New scenario" and "Clone & edit" flows (name + prompt
       textarea), model dropdown, health-check panel, "Start conversation" button (disabled until
       a scenario and model are chosen).
       Verify: manual browser pass — create a scenario, edit a clone, watch the health panel
       react to a killed backend, confirm the Start button gates correctly.
+      Note: markup/layout only, per this step's scope — no JS wiring yet (that's step 8's job),
+      so scenario list/model dropdown/health badges are static "loading…"/"checking…"
+      placeholders and Start stays disabled; the interactive parts of this step's Verify line
+      (create/edit-a-clone, health panel reacting to a killed backend, Start gating) are deferred
+      to step 8, which is what actually implements that behavior. Added `ui/css/setup.css` for
+      this screen's own layout (scenario list/form, health rows, start button) alongside the
+      shared `theme.css`; removed the old single-page inline `<style>`/`<script>` and the
+      `symbl-opus-encdec`/`onnxruntime-web`/`vad-web` CDN script tags entirely (recording/VAD/
+      conversation UI moves to `ui/js/chat.js` + `chat.html` in step 9, not needed here). Kept
+      the `lang-badge` subtitle and the existing `#modelSelect`/`#unloadModelBtn`/`#modelStatus`
+      element ids so step 8 can reuse the same wiring logic the old page had.
+      Chrome automation was connected this session (unlike steps 1–2): rebuilt+redeployed the
+      `vc2` container, loaded `localhost:8010`, confirmed the Setup screen renders with no
+      console errors, and clicked the theme toggle to confirm dark mode still applies correctly
+      on the new markup. `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (37 passed)
+      all still green (no Python touched this step, confirmed nothing broke).
 
 - [ ] 8. Setup screen wiring (`ui/js/setup.js`)
       Fetch/populate scenarios and models, handle create/clone/edit/delete, run health checks
