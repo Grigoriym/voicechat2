@@ -146,9 +146,18 @@ class WhisperWebserviceEngine(TranscriptionEngine):
         if self.language:
             params["language"] = self.language
         files = {"audio_file": ("audio.opus", audio_content, "audio/ogg")}
-        response = self._requests.post(self.url, params=params, files=files, timeout=60)
-        response.raise_for_status()
-        result = response.json()
+        try:
+            response = self._requests.post(self.url, params=params, files=files, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+        except (self._requests.exceptions.RequestException, ValueError) as e:
+            # Audio too short/header-only for the webservice to transcribe
+            # (e.g. a near-instant push-to-talk click): it replies with a
+            # 500 or a non-JSON body instead of {"text": ...}. Same "empty
+            # text" outcome as the 0-byte short-circuit in /inference, just
+            # discovered a layer deeper.
+            logger.warning(f"Whisper webservice transcription failed, treating as empty: {e}")
+            return "", []
         text = (result.get("text") or "").strip()
         return text, result.get("segments", [])
 
