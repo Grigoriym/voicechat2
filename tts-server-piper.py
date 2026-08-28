@@ -28,7 +28,7 @@ class TTSRequest(BaseModel):
 
 def clean_text(text: str) -> str:
     text = text.strip()
-    text = re.sub(r'~+', '!', text)
+    text = re.sub(r"~+", "!", text)
     text = re.sub(r"\(.*?\)", "", text)
     text = re.sub(r"(\*[^*]+\*)|(_[^_]+_)", "", text)
     return text.strip()
@@ -42,14 +42,17 @@ async def text_to_speech(request: TTSRequest):
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            PIPER_BIN, "--model", PIPER_MODEL, "--output-raw",
+            PIPER_BIN,
+            "--model",
+            PIPER_MODEL,
+            "--output-raw",
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
         pcm, _ = await proc.communicate(text.encode("utf-8"))
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail=f"Piper binary not found at {PIPER_BIN}")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=f"Piper binary not found at {PIPER_BIN}") from e
 
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -64,4 +67,5 @@ async def text_to_speech(request: TTSRequest):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8003)

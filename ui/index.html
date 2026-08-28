@@ -310,7 +310,7 @@
         let isVADEnabled = false;
         let myvad;
 
-        // Text 
+        // Text
         let currentAIResponse = '';
         let aiMessageElement = null;
         let isAIResponding = false;
@@ -426,7 +426,7 @@
             this.onstop = () => {
               // Combine all chunks into a single Blob
               const opusBlob = new Blob(encodedChunks, { type: 'audio/ogg; codecs=opus' });
-              
+
               // Restore original callbacks
               this.ondataavailable = originalOndataavailable;
               this.onstart = originalOnstart;
@@ -458,7 +458,7 @@
                             try {
                                 opusBlob = await recorder.encodeAudio(audio);
                                 console.log("Encoding complete, blob size:", opusBlob.size);
-                                
+
                                 // Ensure WebSocket is open, reinitialize if necessary
                                 if (!socket || socket.readyState !== WebSocket.OPEN) {
                                     log('WebSocket is not open. Reinitializing...');
@@ -792,7 +792,7 @@
 
     function initializeWebSocketAsync() {
         return new Promise((resolve, reject) => {
-            
+
         let currentUrl = window.location;
         let wsProtocol = currentUrl.protocol === 'https:' ? 'wss:' : 'ws:';
         let wsUrl = `${wsProtocol}//${currentUrl.host}/ws`;

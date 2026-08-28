@@ -1,21 +1,21 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, HTMLResponse
-from pydantic import BaseModel
-from TTS.api import TTS
+import io
+import re
+import time
+
 import librosa
 import numpy as np
-import io
-import time
-import re
 import soundfile as sf
 import torch
-
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
+from TTS.api import TTS
 
 app = FastAPI()
 
-print('Loading VITS...')
+print("Loading VITS...")
 t0 = time.time()
-vits_model = 'tts_models/en/vctk/vits'
+vits_model = "tts_models/en/vctk/vits"
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -28,13 +28,11 @@ tts_vits = TTS(vits_model).to(device)
 elapsed = time.time() - t0
 print(f"Loaded in {elapsed:.2f}s")
 
+
 class TTSRequest(BaseModel):
     text: str
-    # Female
-    speaker: str = "p273"
-    speaker: str = "p335"
+    speaker: str = "p335"  # Male; "p273" for Female
 
-    # Male
 
 @app.get("/", response_class=HTMLResponse)
 async def get_form():
@@ -55,15 +53,16 @@ async def get_form():
     </html>
     """
 
+
 @app.post("/tts")
 async def text_to_speech(request: TTSRequest):
     try:
         # Text preprocessing
         text = request.text.strip()
-        text = re.sub(r'~+', '!', text)
+        text = re.sub(r"~+", "!", text)
         text = re.sub(r"\(.*?\)", "", text)
         text = re.sub(r"(\*[^*]+\*)|(_[^_]+_)", "", text).strip()
-        text = re.sub(r'[^\x00-\x7F]+', '', text)
+        text = re.sub(r"[^\x00-\x7F]+", "", text)
 
         t0 = time.time()
         wav_np = tts_vits.tts(text, speaker=request.speaker)
@@ -78,21 +77,22 @@ async def text_to_speech(request: TTSRequest):
         wav_np = np.clip(wav_np, -1, 1)
 
         # Resample to 24kHz
-        original_sr=22050
+        original_sr = 22050
         wav_np_24k = librosa.resample(wav_np, orig_sr=original_sr, target_sr=24000)
 
         # Convert to Opus using an in-memory buffer
         buffer = io.BytesIO()
-        sf.write(buffer, wav_np_24k, 24000, format='ogg', subtype='opus')
+        sf.write(buffer, wav_np_24k, 24000, format="ogg", subtype="opus")
         # sf.write(buffer, wav_np, 24000, format='ogg', subtype='opus')
         buffer.seek(0)
 
         return StreamingResponse(buffer, media_type="audio/ogg; codecs=opus")
     except Exception as e:
         print(f"Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8003)

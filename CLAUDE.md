@@ -48,6 +48,30 @@ moot now since neither package is a dependency of the active path anymore).
 Recreate it with `requirements-lean.txt`, not the upstream `requirements.txt`
 (see that file's header for why).
 
+## Development
+
+```
+pip install -r requirements-dev.txt   # ruff, mypy, pytest, pre-commit
+pre-commit install                    # one-time, wires the git hook
+ruff check . && ruff format .         # lint + format
+mypy .                                # type check
+pytest -q                             # unit tests, test/test_*.py
+```
+
+`pre-commit run --all-files` runs the full set (ruff, mypy, plus generic
+whitespace/EOF/merge-conflict checks) without committing. The same set runs
+in CI on push/PR (`.github/workflows/ci.yml`).
+
+The five untouched upstream reference files under `test/` (`voicechat2-monolithic.py`,
+`voicechat2-webrtc.py`, `styletts2-server.py`, `melo-server.py`, `piper-server.py`)
+are excluded from mypy and from ruff's rule checks (still auto-formatted) — see
+`pyproject.toml`. If one of them gets adopted into the active path, drop it
+from both exclude lists there and in `.pre-commit-config.yaml`'s mypy hook.
+
+Tests import the hyphenated active-path scripts (`voicechat2.py`, `srt-server.py`,
+`tts-server-piper.py`) directly via `importlib` — see `test/conftest.py`'s
+fixtures — since they're flat scripts, not a package.
+
 ## Diverged from upstream
 
 Upstream assumes a CUDA/NVIDIA GPU, a locally-built llama.cpp + GGUF model,
@@ -99,3 +123,9 @@ further.
   intact and still selectable via `SRT_ENGINE`/pointing `TTS_ENDPOINT`
   elsewhere, but are untested on this machine's AMD GPU — treat them as
   upstream reference code, not verified paths.
+- Removed as dead/unreferenced when the linting/testing setup surfaced them:
+  `ui/index-webrtc.py` (actually HTML despite the `.py` extension, nothing
+  linked to it) and `voicechat2.py`'s `process_llm_content`/`process_sentence`
+  (never called from anywhere in that file — `test/voicechat2-webrtc.py` has
+  its own separate copies, unaffected). If you're looking for either, check
+  git history.

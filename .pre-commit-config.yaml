@@ -1,0 +1,36 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - fastapi
+          - pydantic
+          - types-requests
+        # mypy ignores [tool.mypy] exclude for explicitly-passed files (which
+        # is how pre-commit invokes it), so the pyproject.toml exclusions
+        # have to be repeated here at the hook level.
+        exclude: |
+          (?x)^(
+            test/voicechat2-monolithic\.py|
+            test/voicechat2-webrtc\.py|
+            test/styletts2-server\.py|
+            test/melo-server\.py|
+            test/piper-server\.py
+          )$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict

@@ -11,14 +11,14 @@ lhl
 ## Things used in this project
 
 ### Hardware components
-AMD Radeon Pro W7900 GPU	
+AMD Radeon Pro W7900 GPU
 
 ### Software apps and online services
-AMD ROCm™ Software	
+AMD ROCm™ Software
 whisper.cpp
 llama.cpp
 Coqui TTS
-		
+
 
 ## Story
 

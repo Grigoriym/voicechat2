@@ -11,4 +11,3 @@ LOCAL_PORT="8000"  # The port you want to use locally
 
 # Create the tunnel through the jump server
 ssh -N -L $LOCAL_PORT:localhost:$REMOTE_PORT $JUMP_SERVER
-

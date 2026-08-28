@@ -1,0 +1,36 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+    "B008",  # File(...)/Form(...)/Depends(...) as argument defaults is FastAPI's own idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Untouched upstream reference code (see CLAUDE.md "Diverged from upstream") -
+# not on the active path, kept around for reference rather than actively maintained.
+"test/voicechat2-monolithic.py" = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+"test/voicechat2-webrtc.py" = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+"test/styletts2-server.py" = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+"test/melo-server.py" = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+"test/piper-server.py" = ["E", "F", "W", "I", "UP", "B", "SIM", "C4"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+exclude = [
+    "^test/voicechat2-monolithic\\.py$",
+    "^test/voicechat2-webrtc\\.py$",
+    "^test/styletts2-server\\.py$",
+    "^test/melo-server\\.py$",
+    "^test/piper-server\\.py$",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

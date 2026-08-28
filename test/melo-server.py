@@ -11,21 +11,22 @@ import torch
 
 from melo.api import TTS
 
-'''
+"""
 RTF is good 0.02-0.03, but latency not mouch improved
 does not handle acronyms well
-'''
+"""
 
 
 app = FastAPI()
 
 t0 = time.time()
 
-model = TTS(language='EN', device='auto')
+model = TTS(language="EN", device="auto")
 speaker_ids = model.hps.data.spk2id
 
 elapsed = time.time() - t0
 print(f"Loaded in {elapsed:.2f}s")
+
 
 class TTSRequest(BaseModel):
     text: str
@@ -35,25 +36,27 @@ class TTSRequest(BaseModel):
 
     # Male
 
+
 @app.get("/", response_class=HTMLResponse)
 async def get_form():
     return "OK"
+
 
 @app.post("/tts")
 async def text_to_speech(request: TTSRequest):
     try:
         # Text preprocessing
         text = request.text.strip()
-        text = re.sub(r'~+', '!', text)
+        text = re.sub(r"~+", "!", text)
         text = re.sub(r"\(.*?\)", "", text)
         text = re.sub(r"(\*[^*]+\*)|(_[^_]+_)", "", text).strip()
-        text = re.sub(r'[^\x00-\x7F]+', '', text)
+        text = re.sub(r"[^\x00-\x7F]+", "", text)
 
         t0 = time.time()
 
         buffer = io.BytesIO()
         print(speaker_ids)
-        model.tts_to_file(text, speaker_ids['EN-Default'], buffer, speed=1.0, format='wav')
+        model.tts_to_file(text, speaker_ids["EN-Default"], buffer, speed=1.0, format="wav")
         buffer.seek(0)
         wav_np, sr = sf.read(buffer)
 
@@ -74,7 +77,7 @@ async def text_to_speech(request: TTSRequest):
 
         # Convert to Opus using an in-memory buffer
         buffer = io.BytesIO()
-        sf.write(buffer, wav_np_24k, 24000, format='ogg', subtype='opus')
+        sf.write(buffer, wav_np_24k, 24000, format="ogg", subtype="opus")
         buffer.seek(0)
 
         return StreamingResponse(buffer, media_type="audio/ogg; codecs=opus")
@@ -85,4 +88,5 @@ async def text_to_speech(request: TTSRequest):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8003)

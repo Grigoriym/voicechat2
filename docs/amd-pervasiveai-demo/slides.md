@@ -28,7 +28,7 @@ mdc: true
 
 <br>
 
-### Leonard Lin 
+### Leonard Lin
 ### https://leonardlin.com/
 
 <div class="absolute right-30px bottom-30px">
@@ -50,7 +50,7 @@ The last comment block of each slide will be treated as slide notes. It will be 
   - https://linkedin.com/in/randomfoo
 - Currently based in Tokyo
 - Training Multilingual and Multimodal LLMs (Shisa.AI)
-- See also, recent TokyoAI presentation: 
+- See also, recent TokyoAI presentation:
     - [Lessons Learned Training Open Source Japanese LLMs](https://drive.google.com/file/d/1aROHESB58ryxkZH1D93fTBljazyus3o-/view)
 
 <!--
@@ -109,13 +109,13 @@ transition: fade
 
 # W7900 / RDNA3
 
-| **PROJECT**  | **STATUS** | 
+| **PROJECT**  | **STATUS** |
 |--------------|------------|
 | PyTorch      | GOOD       |
 | Triton       | OK         |
 | Flash Attention | BAD     |
 | bitsandbytes | GOOD       |
-| xformers     | BROKEN     | 
+| xformers     | BROKEN     |
 
 
 ---
@@ -124,7 +124,7 @@ transition: fade
 
 # W7900 / RDNA3
 
-| **PROJECT**  | **STATUS** | 
+| **PROJECT**  | **STATUS** |
 |--------------|------------|
 | llama.cpp    | GOOD       |
 | ExLlamaV2    | OK         |
@@ -137,7 +137,7 @@ transition: fade
 
 # W7900 / RDNA3
 
-| **PROJECT**  | **STATUS** | 
+| **PROJECT**  | **STATUS** |
 |--------------|------------|
 | Whisper      | GOOD       |
 | whisper.cpp  | GOOD       |
@@ -152,7 +152,7 @@ transition: fade
 
 # W7900 / RDNA3
 
-| **PROJECT**  | **STATUS** | 
+| **PROJECT**  | **STATUS** |
 |--------------|------------|
 | torchtune    | GOOD       |
 | axolotl      | OK         |

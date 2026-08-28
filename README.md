@@ -16,7 +16,7 @@ On an 7900-class AMD RDNA3 card, voice-to-voice latency is in the 1 second range
 - [bartowski/Meta-Llama-3.1-8B-Instruct-GGUF](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) (Q4_K_M)
 - tts_models/en/vctk/vits (Coqui TTS default VITS models)
 
-On a 4090, using [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) with [faster-distil-whisper-large-v2](https://huggingface.co/Systran/faster-distil-whisper-large-v2) we can cut the latency down to as low as 300ms:  
+On a 4090, using [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) with [faster-distil-whisper-large-v2](https://huggingface.co/Systran/faster-distil-whisper-large-v2) we can cut the latency down to as low as 300ms:
 
 [voicechat2 demo](https://github.com/user-attachments/assets/5b8a3805-0116-4f7b-920d-231a2dbfb481)
 
@@ -35,10 +35,10 @@ sudo apt update
 sudo apt install byobu curl wget
 
 # Audio processing
-sudo apt install espeak-ng ffmpeg libopus0 libopus-dev 
+sudo apt install espeak-ng ffmpeg libopus0 libopus-dev
 ```
 
-## Checkout code 
+## Checkout code
 ```
 # Create env
 mamba create -y -n voicechat2 python=3.11
@@ -56,9 +56,9 @@ pip install -r requirements.txt
 git clone https://github.com/ggerganov/llama.cpp
 cd llama.cpp
 # AMD version
-make GGML_HIPBLAS=1 -j 
+make GGML_HIPBLAS=1 -j
 # Nvidia version
-make GGML_CUDA=1 -j 
+make GGML_CUDA=1 -j
 
 # Grab your preferred GGUF model
 wget https://huggingface.co/bartowski/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct-Q4_K_M.gguf

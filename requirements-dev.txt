@@ -1,0 +1,9 @@
+# Dev tooling: lint/format (ruff), type-check (mypy), tests (pytest + httpx
+# for FastAPI's TestClient), pre-commit hooks. Not needed to run the app
+# itself - see requirements-lean.txt for that.
+ruff==0.16.5
+mypy==2.3.1
+pytest==9.1.1
+pytest-cov==7.1.0
+httpx==0.28.1
+pre-commit==4.6.2

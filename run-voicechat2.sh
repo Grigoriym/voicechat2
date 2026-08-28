@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # path to your llm
-LLM_MODEL=llama.cpp/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf 
+LLM_MODEL=llama.cpp/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
 LLM_CONTEXT=8192 # if you use Llama 3.1 and don't specify this it'll OOM
 
 

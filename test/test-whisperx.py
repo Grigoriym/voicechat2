@@ -1,9 +1,11 @@
-import io
 import soundfile as sf
-import whisperx                                                            
-whisper_model = whisperx.load_model("large-v2", "cuda", compute_type="float16", language="en", task="transcribe", vad=None)
+import whisperx
 
-audio_file = 'test_audio.opus'
+whisper_model = whisperx.load_model(
+    "large-v2", "cuda", compute_type="float16", language="en", task="transcribe", vad=None
+)
+
+audio_file = "test_audio.opus"
 
 data, sample_rate = sf.read(audio_file)
 
