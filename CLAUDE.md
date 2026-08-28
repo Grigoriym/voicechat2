@@ -36,6 +36,38 @@ something else on this machine, so this fork runs on **8010**.
 
 ## Running
 
+Two ways to run the stack — don't run both at once, they'll fight over
+ports 8001/8003/8010.
+
+**Docker (always-on, the normal way now):**
+
+```
+docker compose up -d --build   # builds + starts all three, survives reboot
+docker compose ps
+docker compose logs -f vc2     # or srt / tts
+docker compose down            # stop (removes containers; add -v for volumes too)
+```
+
+One `Dockerfile`, three services in `docker-compose.yml` (`srt`, `tts`, `vc2`)
+sharing that image, `command:` picking which uvicorn target each runs.
+`restart: unless-stopped` + `docker.service` already enabled at the systemd
+level means the stack comes back on its own after a reboot, as long as it
+was up (not manually `docker compose down`'d) when the system went down —
+confirmed by killing `vc2`'s process inside its container and watching Docker
+restart it within seconds. All three run with `network_mode: host` rather
+than Docker's default bridge network, because Ollama only listens on
+`127.0.0.1:11434` (confirmed via `ss -tlnp`) — a bridge-networked container
+can't reach that even with `host.docker.internal`, since a loopback bind
+only accepts connections from the same network namespace. Host networking
+sidesteps this entirely and keeps every `localhost:PORT` env var identical
+to the non-Docker setup below; it's Linux-only, which is fine here. The
+`tts` service bind-mounts `~/data/piper` read-only into the container
+(`/piper`) rather than copying it into the image — Piper is a self-contained
+native binary (confirmed via `ldd`: only its own bundled `.so`s plus
+standard glibc/libstdc++), so mounting avoids duplicating the model file.
+
+**Manual (`.venv`, for local dev/debugging):**
+
 ```
 ./run.sh          # starts all three servers, then open http://localhost:8010
 ./stop.sh

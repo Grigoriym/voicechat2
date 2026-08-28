@@ -1,0 +1,39 @@
+services:
+  srt:
+    build: .
+    container_name: voicechat2-srt
+    restart: unless-stopped
+    network_mode: host
+    command: uvicorn srt-server:app --host 127.0.0.1 --port 8001
+    environment:
+      SRT_ENGINE: webservice
+      WHISPER_WEBSERVICE_URL: http://localhost:9001/asr
+      WHISPER_LANGUAGE: de
+
+  tts:
+    build: .
+    container_name: voicechat2-tts
+    restart: unless-stopped
+    network_mode: host
+    command: uvicorn tts-server-piper:app --host 127.0.0.1 --port 8003
+    environment:
+      PIPER_BIN: /piper/piper/piper
+      PIPER_MODEL: /piper/voices/de_DE-thorsten-high.onnx
+    volumes:
+      - /home/gregory/data/piper:/piper:ro
+
+  vc2:
+    build: .
+    container_name: voicechat2-vc2
+    restart: unless-stopped
+    network_mode: host
+    command: uvicorn voicechat2:app --host 0.0.0.0 --port 8010
+    environment:
+      SRT_ENDPOINT: http://localhost:8001/inference
+      LLM_ENDPOINT: http://localhost:11434/v1/chat/completions
+      LLM_MODEL: llama3.1:8b
+      OLLAMA_BASE: http://localhost:11434
+      TTS_ENDPOINT: http://localhost:8003/tts
+    depends_on:
+      - srt
+      - tts
