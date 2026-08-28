@@ -127,6 +127,12 @@ When asked to "do step N": read the checklist, do *exactly* that step, run its `
 tick the box, add a one-line `Note:` if anything deviated, and update the file's `Progress`
 header. Don't start a step whose dependencies aren't ticked, and don't expand scope beyond it.
 
+**Commit and push by default.** Once a task — a checklist step or a one-off fix — is verified
+and complete, commit it and push to `main` without waiting for a separate confirmation each
+time; this line is the standing authorization the general git-safety rules ask for. This does
+not extend to anything destructive or history-rewriting (force-push, `reset --hard`, amending a
+pushed commit, skipping hooks) — those still stop and ask, as usual.
+
 **Answering a question a not-yet-started step will ask is not the same as asking for that step
 to run.** If a preference or decision is stated for a later step, record it there for when that
 step runs — don't treat it as authorization to start the step now.
