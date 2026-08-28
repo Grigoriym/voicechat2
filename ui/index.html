@@ -106,19 +106,19 @@
             font-size: 0.85rem;
         }
 
-        .model-row {
+        .model-row, .scenario-row {
             margin: 0.6rem 0 1rem;
             font-size: 0.85rem;
             color: #555;
         }
-        .model-row select {
+        .model-row select, .scenario-row select {
             font-size: 0.85rem;
             padding: 0.2rem 0.5rem;
             border-radius: 6px;
             border: 1px solid #c9dcf5;
             background: white;
         }
-        #modelStatus {
+        #modelStatus, #scenarioStatus {
             font-size: 0.75rem;
             color: #888;
             margin-left: 0.4rem;
@@ -218,6 +218,11 @@
             LLM model: <select id="modelSelect"><option>loading…</option></select>
             <span id="modelStatus"></span>
             <button id="unloadModelBtn" class="secondary-btn" type="button">Free GPU memory</button>
+        </div>
+
+        <div class="scenario-row">
+            Conversation context: <select id="scenarioSelect"><option>loading…</option></select>
+            <span id="scenarioStatus"></span>
         </div>
 
         <div class="meter-wrap">
@@ -806,6 +811,10 @@
                 if (modelSelect.value) {
                     socket.send(JSON.stringify({ action: 'set_model', model: modelSelect.value }));
                 }
+                const scenarioSelect = document.getElementById('scenarioSelect');
+                if (scenarioSelect.value) {
+                    socket.send(JSON.stringify({ action: 'set_scenario', scenario: scenarioSelect.value }));
+                }
                 resolve(socket);
         };
 
@@ -871,6 +880,8 @@
                             status.textContent = 'Error';
                         } else if (message.type === 'model_set') {
                             document.getElementById('modelStatus').textContent = `active: ${message.model}`;
+                        } else if (message.type === 'scenario_set') {
+                            document.getElementById('scenarioStatus').textContent = 'active';
                         }
                     } catch (error) {
                         log(`Error parsing server message: ${error.message}`);
@@ -941,6 +952,37 @@
             });
         }
 
+        async function initScenarioSelector() {
+            const select = document.getElementById('scenarioSelect');
+            try {
+                const resp = await fetch('/api/scenarios');
+                const data = await resp.json();
+                select.innerHTML = '';
+                for (const scenario of data.scenarios) {
+                    const opt = document.createElement('option');
+                    opt.value = scenario.id;
+                    opt.textContent = scenario.label;
+                    if (scenario.id === data.default) opt.selected = true;
+                    select.appendChild(opt);
+                }
+                document.getElementById('scenarioStatus').textContent = 'active';
+            } catch (error) {
+                select.innerHTML = '<option value="">(scenario list unavailable)</option>';
+                log(`Error loading scenario list: ${error.message}`);
+            }
+
+            select.addEventListener('change', () => {
+                // Switching scenario re-primes the system prompt server-side
+                // and drops prior conversation history, so clear the log too.
+                document.getElementById('conversationLog').innerHTML = '';
+                currentAIResponse = '';
+                aiMessageElement = null;
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ action: 'set_scenario', scenario: select.value }));
+                }
+            });
+        }
+
         function initUnloadModelButton() {
             const btn = document.getElementById('unloadModelBtn');
             const statusEl = document.getElementById('modelStatus');
@@ -970,6 +1012,7 @@
         // Initialize recorder and WebSocket when the page loads
         window.onload = async () => {
             await initModelSelector();
+            await initScenarioSelector();
             initUnloadModelButton();
             await initializeRecorder();
             log('Recorder ready (MediaRecorder)');

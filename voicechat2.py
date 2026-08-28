@@ -25,18 +25,93 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 app.mount("/ui", StaticFiles(directory="ui"), name="ui")
 
-SYSTEM = {
-    "role": "system",
-    "content": os.getenv(
-        "SYSTEM_PROMPT",
-        "This is a live spoken German conversation practice session, transcribed by "
-        "Whisper and read aloud by Piper TTS. Reply in plain conversational German "
-        "prose only: no markdown, no asterisks, no bullet points, no headers, no "
-        "emoji. Keep replies natural and conversationally short unless more detail "
-        "is asked for. Correct mistakes briefly and conversationally, in German, "
-        "then keep the conversation going.",
-    ),
+BASE_SYSTEM_PROMPT = os.getenv(
+    "SYSTEM_PROMPT",
+    "This is a live spoken German conversation practice session, transcribed by "
+    "Whisper and read aloud by Piper TTS. Reply in plain conversational German "
+    "prose only: no markdown, no asterisks, no bullet points, no headers, no "
+    "emoji. Keep replies natural and conversationally short unless more detail "
+    "is asked for. Correct mistakes briefly and conversationally, in German, "
+    "then keep the conversation going.",
+)
+
+# Scenario picker: lets the UI prime the model with a situational role-play on
+# top of BASE_SYSTEM_PROMPT, instead of every session starting from a blank
+# "free talk" context. "general" keeps the old behavior (no addition).
+DEFAULT_SCENARIO = "general"
+SCENARIOS = {
+    "general": {
+        "label": "General / free talk",
+        "prompt": "",
+    },
+    "small_talk": {
+        "label": "Small talk",
+        "prompt": (
+            "Scenario: you've just met the user at a casual social event. Make "
+            "small talk with them — weather, weekend plans, hobbies, how their "
+            "day is going. Keep it light and casual."
+        ),
+    },
+    "doctor": {
+        "label": "Doctor's appointment",
+        "prompt": (
+            "Scenario: you are a doctor (Ärztin/Arzt) and the user is a patient "
+            "who has come in with a complaint. Ask about their symptoms, how "
+            "long they've had them, and give simple advice, the way a German "
+            "doctor would during a Sprechstunde."
+        ),
+    },
+    "restaurant": {
+        "label": "Restaurant",
+        "prompt": (
+            "Scenario: you are a waiter (Kellner/Kellnerin) at a German "
+            "restaurant. Greet the user, describe menu items if asked, take "
+            "their order, and handle the usual back-and-forth of a restaurant "
+            "visit."
+        ),
+    },
+    "shopping": {
+        "label": "Shopping",
+        "prompt": (
+            "Scenario: you are a shop assistant (Verkäufer/Verkäuferin) in a "
+            "German store. Help the user find what they're looking for, "
+            "answer questions about sizes and prices, and handle a typical "
+            "shopping interaction."
+        ),
+    },
+    "job_interview": {
+        "label": "Job interview",
+        "prompt": (
+            "Scenario: you are interviewing the user for a job, in German. "
+            "Ask about their background, experience, and motivation, one "
+            "question at a time, the way a real Vorstellungsgespräch would go."
+        ),
+    },
+    "directions": {
+        "label": "Asking for directions",
+        "prompt": (
+            "Scenario: the user is a tourist asking you for directions in a "
+            "German city. Answer as a helpful local, giving directions and "
+            "simple landmarks."
+        ),
+    },
+    "hotel": {
+        "label": "Hotel check-in",
+        "prompt": (
+            "Scenario: you work the front desk (Rezeption) of a German "
+            "hotel. Handle the user's check-in, answer questions about the "
+            "room, breakfast, and Wi-Fi, and the usual hotel small talk."
+        ),
+    },
 }
+
+
+def build_system_message(scenario: str) -> dict:
+    scenario_prompt = SCENARIOS.get(scenario, SCENARIOS[DEFAULT_SCENARIO])["prompt"]
+    content = BASE_SYSTEM_PROMPT
+    if scenario_prompt:
+        content = f"{BASE_SYSTEM_PROMPT}\n\n{scenario_prompt}"
+    return {"role": "system", "content": content}
 
 
 class ConversationManager:
@@ -47,7 +122,8 @@ class ConversationManager:
     def create_session(self):
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = {
-            "conversation": [SYSTEM],
+            "conversation": [build_system_message(DEFAULT_SCENARIO)],
+            "scenario": DEFAULT_SCENARIO,
             "model": LLM_MODEL,
             "llm_output_sentences": deque(),
             "current_turn": 0,
@@ -109,6 +185,16 @@ class ConversationManager:
 
     def get_conversation(self, session_id):
         return self.sessions[session_id]["conversation"]
+
+    def set_scenario(self, session_id, scenario):
+        """Switching scenario re-primes the system prompt and starts a fresh
+        conversation — mixing an old scenario's history into a new role-play
+        would confuse the model."""
+        self.sessions[session_id]["scenario"] = scenario
+        self.sessions[session_id]["conversation"] = [build_system_message(scenario)]
+        self.sessions[session_id]["current_turn"] = 0
+        self.sessions[session_id]["llm_output_sentences"].clear()
+        self.sessions[session_id]["last_activity"] = time.time()
 
     def clean_old_sessions(self):
         current_time = time.time()
@@ -199,6 +285,16 @@ async def websocket_endpoint(websocket: WebSocket):
                             conversation_manager.sessions[session_id]["model"] = model
                             logger.info(f"Session {session_id} switched to model: {model}")
                             await websocket.send_json({"type": "model_set", "model": model})
+                    elif data.get("action") == "set_scenario":
+                        scenario = data.get("scenario")
+                        if scenario in SCENARIOS:
+                            conversation_manager.set_scenario(session_id, scenario)
+                            logger.info(f"Session {session_id} switched to scenario: {scenario}")
+                            await websocket.send_json(
+                                {"type": "scenario_set", "scenario": scenario}
+                            )
+                        else:
+                            logger.warning(f"Unknown scenario requested: {scenario}")
                     elif data.get("action") == "stop_recording":
                         logger.info("Stop recording message received. Processing audio...")
                         conversation_manager.reset_latency_metrics(session_id)
@@ -390,6 +486,17 @@ async def list_models():
     except Exception as e:
         logger.error(f"Failed to list Ollama models: {str(e)}")
         return {"models": [LLM_MODEL], "default": LLM_MODEL}
+
+
+@app.get("/api/scenarios")
+async def list_scenarios():
+    return {
+        "scenarios": [
+            {"id": scenario_id, "label": scenario["label"]}
+            for scenario_id, scenario in SCENARIOS.items()
+        ],
+        "default": DEFAULT_SCENARIO,
+    }
 
 
 @app.post("/api/unload-model")
