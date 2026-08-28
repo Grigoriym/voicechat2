@@ -686,6 +686,11 @@ def read_root():
     return FileResponse("ui/index.html")
 
 
+@app.get("/chat.html")
+def read_chat():
+    return FileResponse("ui/chat.html")
+
+
 # Run session cleanup periodically
 """
 @app.on_event("startup")

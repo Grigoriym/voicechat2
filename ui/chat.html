@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>voicechat2 — Conversation</title>
+
+    <link rel="stylesheet" href="/ui/css/theme.css">
+    <link rel="stylesheet" href="/ui/css/chat.css">
+    <script src="/ui/js/theme.js"></script>
+</head>
+<body>
+    <div class="page">
+        <div class="page-inner">
+            <div class="page-header">
+                <h1>voicechat2</h1>
+                <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
+            </div>
+            <div class="chat-subheader">
+                <a class="setup-link" href="/">&larr; Setup</a>
+                <span id="activeContext" class="status-hint">loading…</span>
+            </div>
+
+            <div class="card">
+                <div class="meter-wrap">
+                    <div class="meter-label">Microphone level</div>
+                    <div class="meter-track"><div id="micMeterFill" class="meter-fill"></div></div>
+                    <div class="meter-hint" id="micMeterHint">Waiting for microphone access…</div>
+                </div>
+
+                <button id="recordButton" class="record-btn" type="button">🎤 Hold to talk</button>
+                <p class="hint-text">or hold spacebar</p>
+
+                <div id="status" class="status-badge status-ready">Ready</div>
+                <div id="lastCapture"></div>
+                <div id="timer">00:00:000</div>
+
+                <button id="vadToggle" class="btn-secondary" type="button">Enable Voice Auto Detection (experimental)</button>
+            </div>
+
+            <div id="latencyMetrics" class="card">
+                <table>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Value</th>
+                    </tr>
+                    <tr>
+                        <td>Total Voice-to-Voice</td>
+                        <td id="totalVoiceToVoice">0ms</td>
+                    </tr>
+                    <tr>
+                        <td>SRT Duration</td>
+                        <td id="srtDuration">0ms</td>
+                    </tr>
+                    <tr>
+                        <td>LLM TTFT</td>
+                        <td id="llmTTFT">0ms</td>
+                    </tr>
+                    <tr>
+                        <td>LLM TTFS</td>
+                        <td id="llmTTFS">0ms</td>
+                    </tr>
+                    <tr>
+                        <td>TTS Duration</td>
+                        <td id="ttsDuration">0ms</td>
+                    </tr>
+                    <tr>
+                        <td>Network Latency</td>
+                        <td id="networkLatency">0ms</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div id="conversationLog" class="card"></div>
+            <div id="logArea" class="card"></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/symbl-opus-encdec@0.1.2/src/recorder.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.7/dist/bundle.min.js"></script>
+    <script src="/ui/js/chat.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 8/12 — Current step: none
+Progress: 9/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -207,12 +207,46 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       `ruff format --check`, `mypy`, `pytest -q` (37 passed, unchanged — no Python touched this
       step) all still green.
 
-- [ ] 9. Conversation screen (`ui/chat.html`), extracted from the current `index.html`
+- [x] 9. Conversation screen (`ui/chat.html`), extracted from the current `index.html`
       Move the recording/transcript/status UI here, trimmed of the model and scenario dropdowns
       (chosen on Setup now). Read scenario + model from `sessionStorage` on load and send
       `set_scenario`/`set_model` on socket open.
       Verify: manual pass — talk through a full turn, confirm the chosen scenario's prompt is
       actually active (check server logs).
+      Note: pulled the recording/VAD/websocket/transcript/latency-metrics code from the
+      pre-rework page (git history at `fc80aab:ui/index.html`) into `ui/js/chat.js`, with the
+      model/scenario `<select>` elements and their fetch/populate logic dropped entirely —
+      `chat.js` reads `vc2-scenario`/`vc2-model` from `sessionStorage` (same keys `setup.js`
+      writes) and sends `set_model`/`set_scenario` on websocket open, same as the old page did
+      from its dropdown values. Kept the VAD toggle (still the old, documented-broken
+      `symbl-opus-encdec` path — see "Client-side recording" in CLAUDE.md) and its three CDN
+      script tags, since step 7's note explicitly deferred VAD/conversation UI to this step
+      rather than dropping it. Added `ui/css/chat.css` (page-scoped, like `setup.css`) for the
+      record button, status badge, meter, transcript, and latency table, translated from the old
+      inline `<style>` block onto `theme.css`'s custom properties. Added a small `activeContext`
+      line ("scenario: X · model: Y") under a "← Setup" back-link — not explicitly asked for, but
+      a minimal, obvious echo of the sessionStorage read the step already requires, and the only
+      way back to Setup without editing the URL by hand.
+      Also added `voicechat2.py`'s `GET /chat.html` route (mirrors the existing `/` → `ui/index.html`
+      one). Without it the Start button's `chat.html` navigation (already written in step 8, and
+      relative to `/`) 404'd — needed for this step's own page to be reachable at all, not a
+      separate feature. `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (37 passed,
+      unchanged — no test-covered logic touched) all green.
+      Verified live via Chrome automation: rebuilt+redeployed `vc2`; ran the full Setup → Start
+      flow (picked "Restaurant", `llama3.1:8b`, all four health checks green) and landed on
+      `/chat.html` with `scenario: Restaurant · model: llama3.1:8b` displayed; confirmed via
+      `docker compose logs vc2` that the websocket actually received and applied both
+      `set_model`/`set_scenario` for that session ("switched to model: llama3.1:8b" /
+      "switched to scenario: restaurant") immediately on connect — the step's "check server logs"
+      bar. Theme toggle and the "← Setup" link both worked on the new page; no console errors at
+      any point. Talking through a full turn with real spoken audio isn't possible through this
+      automation (no real microphone input), so exercised push-to-talk with a single click
+      instead (near-simultaneous mousedown/mouseup) — this hit a real, pre-existing bug: a
+      110-byte/0.1s capture (non-zero bytes, but no actual audio) isn't caught by
+      `srt-server.py`'s empty-`audio_content` guard and 500s on `response.json()` decoding a
+      non-JSON reply from the whisper webservice. Confirmed via `git diff`/reading `srt-server.py`
+      that this code path is untouched by this step and pre-existing, not a regression — logged
+      as `docs/revisit.md` #1 rather than fixed here (out of scope for a UI-extraction step).
 
 - [ ] 10. Collapsible debug/metrics panel
       Move the latency-metrics table into a `<details>` section on `chat.html`, closed by

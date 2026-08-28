@@ -1,0 +1,165 @@
+/* Conversation screen (ui/chat.html) only — recording controls, status
+   badge, transcript, latency table, and debug log. Shared tokens/base
+   styles come from theme.css. */
+
+.chat-subheader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+    font-size: 0.85rem;
+}
+
+.setup-link {
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.setup-link:hover {
+    text-decoration: underline;
+}
+
+.status-hint {
+    color: var(--color-text-faint);
+}
+
+.meter-wrap {
+    margin-bottom: var(--space-4);
+}
+
+.meter-label {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-1);
+}
+
+.meter-track {
+    width: 100%;
+    height: 18px;
+    background: var(--color-surface-alt);
+    border-radius: 9px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+}
+
+.meter-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--color-success);
+    transition: width 60ms linear, background-color 120ms linear;
+}
+
+.meter-fill.loud { background: var(--color-warning); }
+.meter-fill.clip { background: var(--color-danger); }
+
+.meter-hint {
+    font-size: 0.78rem;
+    color: var(--color-text-faint);
+    margin-top: var(--space-1);
+}
+
+.record-btn {
+    display: block;
+    width: 100%;
+    font-size: 1.15rem;
+    font-weight: bold;
+    padding: 1.1rem 1rem;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--color-border-strong);
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+}
+
+.record-btn.recording {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    color: white;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.5); }
+    70% { box-shadow: 0 0 0 12px rgba(229, 57, 53, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0); }
+}
+
+.hint-text {
+    text-align: center;
+    color: var(--color-text-faint);
+    font-size: 0.85rem;
+    margin: 0 0 var(--space-3);
+}
+
+.status-badge {
+    display: block;
+    width: fit-content;
+    margin: 0 auto var(--space-2);
+    font-size: 1.1rem;
+    font-weight: bold;
+    padding: 0.4rem 1.2rem;
+    border-radius: var(--radius-md);
+}
+
+.status-ready { background: var(--color-surface-alt); color: var(--color-text-muted); }
+.status-recording { background: var(--color-danger-bg); color: var(--color-danger); }
+.status-processing { background: var(--color-warning-bg); color: var(--color-warning); }
+.status-speaking { background: var(--color-success-bg); color: var(--color-success); }
+.status-error { background: var(--color-danger-bg); color: var(--color-danger-strong); }
+
+#lastCapture {
+    text-align: center;
+    margin-bottom: var(--space-2);
+    font-size: 0.9rem;
+    font-family: var(--font-mono);
+}
+
+#lastCapture.ok { color: var(--color-success); }
+#lastCapture.bad { color: var(--color-danger-strong); }
+
+#timer {
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: var(--space-4);
+}
+
+#vadToggle {
+    display: block;
+    margin: 0 auto;
+}
+
+#latencyMetrics table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+}
+
+#latencyMetrics th, #latencyMetrics td {
+    border: 1px solid var(--color-border);
+    padding: var(--space-2);
+    text-align: left;
+}
+
+#latencyMetrics th {
+    background: var(--color-surface-alt);
+}
+
+#conversationLog {
+    height: 300px;
+    overflow-y: auto;
+}
+
+#conversationLog p {
+    margin: 0 0 var(--space-2);
+}
+
+.user-message { color: var(--color-primary); }
+.ai-message { color: var(--color-success); }
+
+#logArea {
+    height: 300px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
