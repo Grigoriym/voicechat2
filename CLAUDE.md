@@ -55,7 +55,11 @@ nonexistent `"gpt-3.5-turbo"` model name (every request would have failed
 against Ollama); the user's latest turn was being sent to the LLM twice per
 request; the reference Piper TTS server (`test/piper-server.py`) stripped
 all non-ASCII text, which would have silently deleted every German
-umlaut/ß. Full diff-level detail in `~/claude/german/voice-setup.md`.
+umlaut/ß; and 0-byte/silent audio (near-instant push-to-talk, VAD misfire)
+crashed `/inference` with an opaque `aiohttp.ContentTypeError` instead of
+hitting the existing "empty text" error path — fixed by short-circuiting
+on empty `audio_content` before it ever reaches the whisper webservice.
+Full diff-level detail in `~/claude/german/voice-setup.md`.
 
 ## Gotchas
 
