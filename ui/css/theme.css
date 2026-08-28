@@ -1,0 +1,240 @@
+/* Design tokens + base styles shared by every voicechat2 screen.
+   Light values live on bare :root; dark values are redefined twice — once
+   under prefers-color-scheme (guarded so an explicit light choice wins) and
+   once under [data-theme="dark"] (so a manual toggle wins in both directions). */
+
+:root {
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --color-bg: #f0f0f0;
+    --color-surface: #ffffff;
+    --color-surface-alt: #f2f2f2;
+    --color-border: #d9d9d9;
+    --color-border-strong: #c9dcf5;
+    --color-text: #222429;
+    --color-text-muted: #555b66;
+    --color-text-faint: #888f99;
+
+    --color-primary: #1a4a8a;
+    --color-primary-bg: #eef4ff;
+    --color-primary-hover: #14396b;
+
+    --color-danger: #e53935;
+    --color-danger-bg: #fdecea;
+    --color-danger-strong: #b71c1c;
+    --color-warning: #b8860b;
+    --color-warning-bg: #fff6e0;
+    --color-success: #2e7d32;
+    --color-success-bg: #e8f5e9;
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.08);
+    --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.12);
+
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --color-bg: #14161a;
+        --color-surface: #1c1f26;
+        --color-surface-alt: #23272f;
+        --color-border: #30353f;
+        --color-border-strong: #3c4a63;
+        --color-text: #e8eaed;
+        --color-text-muted: #a7aeb9;
+        --color-text-faint: #6b7280;
+
+        --color-primary: #8aa2f4;
+        --color-primary-bg: #1e2740;
+        --color-primary-hover: #a9bbf7;
+
+        --color-danger: #f2726a;
+        --color-danger-bg: #3a1f1e;
+        --color-danger-strong: #f2938c;
+        --color-warning: #e0b34d;
+        --color-warning-bg: #3a3320;
+        --color-success: #6bcf7f;
+        --color-success-bg: #1f3a24;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+
+        color-scheme: dark;
+    }
+}
+
+:root[data-theme="dark"] {
+    --color-bg: #14161a;
+    --color-surface: #1c1f26;
+    --color-surface-alt: #23272f;
+    --color-border: #30353f;
+    --color-border-strong: #3c4a63;
+    --color-text: #e8eaed;
+    --color-text-muted: #a7aeb9;
+    --color-text-faint: #6b7280;
+
+    --color-primary: #8aa2f4;
+    --color-primary-bg: #1e2740;
+    --color-primary-hover: #a9bbf7;
+
+    --color-danger: #f2726a;
+    --color-danger-bg: #3a1f1e;
+    --color-danger-strong: #f2938c;
+    --color-warning: #e0b34d;
+    --color-warning-bg: #3a3320;
+    --color-success: #6bcf7f;
+    --color-success-bg: #1f3a24;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+
+    color-scheme: dark;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+    line-height: 1.25;
+    margin: 0 0 var(--space-3);
+}
+
+/* Layout shell every screen uses: a centered column of cards. */
+.page {
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+}
+
+.page-inner {
+    width: 100%;
+    max-width: 640px;
+    padding: var(--space-6) var(--space-4);
+}
+
+.card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: var(--space-6);
+    margin-bottom: var(--space-4);
+}
+
+/* Buttons */
+button {
+    font-family: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    padding: 0.6rem 1.2rem;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.btn-primary {
+    background: var(--color-primary-bg);
+    border-color: var(--color-border-strong);
+    color: var(--color-primary);
+    font-weight: bold;
+}
+
+.btn-primary:hover:not(:disabled) {
+    border-color: var(--color-primary);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    padding: 0.35rem 0.8rem;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    border-color: var(--color-text-faint);
+}
+
+.btn-danger {
+    background: var(--color-danger-bg);
+    border-color: var(--color-danger);
+    color: var(--color-danger-strong);
+    font-size: 0.85rem;
+    padding: 0.35rem 0.8rem;
+}
+
+/* Form controls */
+select, input[type="text"], textarea {
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+textarea {
+    width: 100%;
+    resize: vertical;
+    line-height: 1.4;
+}
+
+/* Status badges — shared by health checks and the conversation status line. */
+.badge {
+    display: inline-block;
+    font-size: 0.85rem;
+    font-weight: bold;
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+}
+
+.badge-ok { background: var(--color-success-bg); color: var(--color-success); }
+.badge-warn { background: var(--color-warning-bg); color: var(--color-warning); }
+.badge-error { background: var(--color-danger-bg); color: var(--color-danger-strong); }
+.badge-neutral { background: var(--color-surface-alt); color: var(--color-text-muted); }
+
+/* Theme toggle button, used on every page's header. */
+.theme-toggle {
+    width: auto;
+    padding: 0.35rem 0.6rem;
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+}
