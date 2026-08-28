@@ -59,6 +59,14 @@ let myvad;
 let currentAIResponse = "";
 let aiMessageElement = null;
 let isAIResponding = false;
+let currentTurn = null;
+
+// Chat bubbles, keyed by `${turn}-${role}` (role matches the server's
+// grammar_check "user"/"assistant", not the display label) so a later
+// grammar_check message can find the bubble it belongs to.
+const messageElements = {};
+const ROLE_LABEL = { user: "User", assistant: "AI" };
+const ROLE_CLASS = { user: "user-message", assistant: "ai-message" };
 
 // Playback
 let audioQueue = [];
@@ -544,10 +552,13 @@ function initializeWebSocketAsync() {
                     } else if (message.type === "text") {
                         updateAIResponse(message.content);
                     } else if (message.type === "transcription") {
-                        displayMessage("User", message.content);
+                        currentTurn = message.turn;
+                        displayMessage("user", message.content, currentTurn);
                         currentAIResponse = "";
                         aiMessageElement = null;
                         isAIResponding = true;
+                    } else if (message.type === "grammar_check") {
+                        applyGrammarCheck(message);
                     } else if (message.type === "latency_metrics") {
                         updateLatencyMetrics(message.metrics);
                     } else if (message.type === "processing_complete") {
@@ -578,11 +589,22 @@ function updateLatencyMetrics(metrics) {
     document.getElementById("ttsDuration").textContent = `${(metrics.tts_duration * 1000).toFixed(1)}ms`;
 }
 
-function displayMessage(role, content) {
+function displayMessage(role, content, turn) {
     const conversationLog = document.getElementById("conversationLog");
     const messageElement = document.createElement("p");
-    messageElement.className = role.toLowerCase() + "-message";
-    messageElement.textContent = `${role}: ${content}`;
+    messageElement.className = ROLE_CLASS[role] || `${role}-message`;
+    if (turn !== undefined && turn !== null) {
+        messageElement.dataset.turn = turn;
+        messageElement.dataset.role = role;
+        messageElements[`${turn}-${role}`] = messageElement;
+    }
+    // Text lives in its own child span so a grammar_check badge/correction
+    // can be appended as a sibling later without getting wiped by
+    // updateAIResponse's innerHTML rewrites while the AI reply streams in.
+    const body = document.createElement("span");
+    body.className = "message-body";
+    body.textContent = `${ROLE_LABEL[role] || role}: ${content}`;
+    messageElement.appendChild(body);
     conversationLog.appendChild(messageElement);
     conversationLog.scrollTop = conversationLog.scrollHeight;
     return messageElement;
@@ -591,11 +613,35 @@ function displayMessage(role, content) {
 function updateAIResponse(newContent) {
     currentAIResponse += newContent;
     if (!aiMessageElement) {
-        aiMessageElement = displayMessage("AI", "");
+        aiMessageElement = displayMessage("assistant", "", currentTurn);
     }
-    aiMessageElement.innerHTML = `AI: ${currentAIResponse}${isAIResponding ? '<span class="ai-cursor"></span>' : ""}`;
+    const body = aiMessageElement.querySelector(".message-body");
+    body.innerHTML = `AI: ${currentAIResponse}${isAIResponding ? '<span class="ai-cursor"></span>' : ""}`;
     const conversationLog = document.getElementById("conversationLog");
     conversationLog.scrollTop = conversationLog.scrollHeight;
+}
+
+// Looks up the chat bubble a grammar_check message belongs to and appends a
+// ✓ badge (correct) or a "→ corrected: ..." line (incorrect). Skips
+// silently if the bubble's gone (e.g. page reloaded mid-check).
+function applyGrammarCheck(message) {
+    const element = messageElements[`${message.turn}-${message.role}`];
+    if (!element) return;
+
+    const existingNote = element.querySelector(".grammar-note");
+    if (existingNote) existingNote.remove();
+
+    if (message.correct) {
+        const badge = document.createElement("span");
+        badge.className = "grammar-note grammar-ok";
+        badge.textContent = "✓";
+        element.appendChild(badge);
+    } else {
+        const correction = document.createElement("div");
+        correction.className = "grammar-note grammar-correction";
+        correction.textContent = `→ corrected: ${message.corrected}`;
+        element.appendChild(correction);
+    }
 }
 
 // Initialize recorder and WebSocket when the page loads

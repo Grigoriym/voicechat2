@@ -166,6 +166,21 @@
 .user-message { color: var(--color-primary); }
 .ai-message { color: var(--color-success); }
 
+.grammar-note {
+    font-size: 0.8rem;
+}
+
+.grammar-ok {
+    margin-left: var(--space-1);
+    color: var(--color-success);
+}
+
+.grammar-correction {
+    margin: 2px 0 0 var(--space-4);
+    color: var(--color-text-faint);
+    font-style: italic;
+}
+
 #logArea {
     height: 300px;
     overflow-y: auto;

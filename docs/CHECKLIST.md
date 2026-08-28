@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 2/3 — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done) — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -372,7 +372,7 @@ Decided up front, don't re-litigate:
       `asyncio.gather` after the call) asserting the `role: "assistant"` message. `ruff check`,
       `ruff format --check`, `mypy`, `pytest -q` (47 passed) all green.
 
-- [ ] 15. Front-end: badge/correction rendering (`ui/js/chat.js`, `ui/css/chat.css`)
+- [x] 15. Front-end: badge/correction rendering (`ui/js/chat.js`, `ui/css/chat.css`)
       `displayMessage(role, content, turn)` stores `data-turn`/`data-role` on the element and keeps a
       `messageElements` map keyed by `` `${turn}-${role}` ``; the `transcription` handler passes
       `message.turn` and remembers it as `currentTurn` so the AI bubble `updateAIResponse` creates
@@ -383,3 +383,28 @@ Decided up front, don't re-litigate:
       exchange, send a fabricated `grammar_check` message through the open websocket from the devtools
       console for that turn's user and AI bubbles, confirm the badge/correction appears on the right
       one, styled consistently in light and dark theme.
+      Note: `displayMessage`'s `role` param now matches the server's `grammar_check` vocabulary
+      ("user"/"assistant") instead of the old display-cased "User"/"AI" strings, via `ROLE_LABEL`/
+      `ROLE_CLASS` lookup maps — keeps the `${turn}-${role}` map key consistent with what
+      `grammar_check` messages carry, without changing the rendered "User:"/"AI:" text or the existing
+      `.user-message`/`.ai-message` CSS classes. Each bubble's text now lives in a child `.message-body`
+      span (previously the `<p>`'s own `textContent`/`innerHTML`) so `applyGrammarCheck` can append a
+      `.grammar-note` sibling without `updateAIResponse`'s per-token `innerHTML` rewrites wiping it —
+      not actually reachable in practice since `grammar_check` for the assistant only fires after
+      streaming/`processing_complete` (checked in `voicechat2.py`), but avoids relying on that timing.
+      Re-sending a `grammar_check` for an already-annotated turn replaces the old note rather than
+      stacking a second one (`existingNote.remove()` before appending). No JS test harness exists in
+      this project (same as steps 7-11), so verification was the manual browser pass the step's Verify
+      line asks for, via Chrome automation: rebuilt+redeployed `vc2`, ran the full Setup → Start flow
+      (all four health checks green) and landed on `/chat.html`. Real spoken audio isn't exercisable
+      through this automation (no real mic, per steps 9-10's note), so simulated a full turn by invoking
+      the page's own `socket.onmessage` handler from the devtools console with fabricated
+      `transcription`/`text`/`processing_complete`/`grammar_check` messages (closer to "through the open
+      websocket" than the step's literal suggestion of `socket.send`, which would target the server, not
+      the client's own message handler) — confirmed `messageElements` held both `"1-user"` and
+      `"1-assistant"` keys, the user bubble showed "→ corrected: Ich habe ein Auto." in muted italic, and
+      the AI bubble showed a green ✓, in both dark and light theme (toggled live) with no console errors.
+      Also verified live: a second `grammar_check` for the same turn/role left exactly one `.grammar-note`
+      element (replaced, not duplicated), and one for an unknown turn (999) was silently ignored, no
+      throw. `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (47 passed, unchanged — no Python
+      touched this step) all still green. This closes out the grammar-check pass (3/3).
