@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 import pytest
 from fastapi.testclient import TestClient
@@ -374,3 +376,60 @@ def test_scenarios_endpoint_rejects_deleting_builtin(voicechat2, monkeypatch, tm
     response = client.delete("/api/scenarios/general")
 
     assert response.status_code == 400
+
+
+def test_check_grammar_returns_correct_for_ok_reply(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "OK\n"}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.check_grammar("Wie geht es dir?"))
+
+    assert result == {"correct": True, "corrected": None}
+
+
+def test_check_grammar_returns_correction_for_corrected_reply(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "CORRECTED: Was möchtest du heute machen?"}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.check_grammar("Wie kannst du heute sein wolltest du machen?"))
+
+    assert result == {"correct": False, "corrected": "Was möchtest du heute machen?"}
+
+
+def test_check_grammar_returns_none_for_unparseable_reply(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "Sure, here's my analysis..."}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.check_grammar("Hallo!"))
+
+    assert result is None
+
+
+def test_check_grammar_returns_none_on_request_error(voicechat2, monkeypatch):
+    class _FailingSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise aiohttp.ClientConnectionError("boom")
+
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", lambda *a, **kw: _FailingSession())
+
+    result = asyncio.run(voicechat2.check_grammar("Hallo!"))
+
+    assert result is None

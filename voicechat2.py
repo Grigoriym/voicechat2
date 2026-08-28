@@ -21,6 +21,11 @@ LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434")
 TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "http://localhost:8003/tts")
 
+# Grammar-check pass: a separate, fixed model (independent of whichever model
+# is driving the conversation) used to silently score each turn's German and
+# offer a correction. See docs/CHECKLIST.md "Grammar-check pass".
+GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "cas/discolm-mfto-german:latest")
+
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -317,6 +322,50 @@ async def transcribe_audio(audio_data, session_id, turn_id):
         logger.error(f"Transcription error: {str(e)}")
         logger.error(traceback.format_exc())
         raise
+
+
+GRAMMAR_CHECK_SYSTEM_PROMPT = (
+    "You are a strict German grammar checker. You will be given one short "
+    "German utterance from a spoken conversation. If it is grammatically "
+    "correct, natural German, reply with exactly: OK\n"
+    "If it has a grammar or word-order mistake, reply with exactly: "
+    "CORRECTED: <the corrected sentence>\n"
+    "Reply with nothing else, no explanation."
+)
+
+
+async def check_grammar(text: str) -> dict | None:
+    """Scores one utterance's German via GRAMMAR_CHECK_MODEL. Returns
+    {"correct": True, "corrected": None} or {"correct": False, "corrected":
+    "..."}, or None if the reply didn't parse or the request failed — the
+    caller skips sending an update rather than show a wrong badge."""
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                LLM_ENDPOINT,
+                json={
+                    "model": GRAMMAR_CHECK_MODEL,
+                    "messages": [
+                        {"role": "system", "content": GRAMMAR_CHECK_SYSTEM_PROMPT},
+                        {"role": "user", "content": text},
+                    ],
+                    "stream": False,
+                },
+            ) as response,
+        ):
+            data = await response.json()
+        reply = data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"Grammar check error: {str(e)}")
+        return None
+
+    if reply == "OK":
+        return {"correct": True, "corrected": None}
+    if reply.startswith("CORRECTED:"):
+        return {"correct": False, "corrected": reply[len("CORRECTED:") :].strip()}
+    logger.warning(f"Unparseable grammar-check reply: {reply!r}")
+    return None
 
 
 @app.websocket("/ws")

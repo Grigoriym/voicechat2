@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 12/12 — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 1/3 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -303,3 +303,67 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       badges green); clicked "Start conversation" and landed on `/chat.html` with
       "scenario: General / free talk · model: llama3.1:8b" correctly carried over via
       `sessionStorage`; no console errors. This closes out the UI rework checklist (12/12).
+
+## Grammar-check pass: inline correctness badge
+
+Goal: after each turn (the user's spoken input and the AI's reply), silently score whether the German
+is grammatically correct and show the result inline in the transcript — a checkmark if it's fine, the
+corrected sentence directly if not — using the `cas/discolm-mfto-german` German-specialized model
+(pulled 2026-08-28) as a dedicated checker, separate from whichever model is driving the conversation.
+Decided up front, don't re-litigate:
+
+- **Both user and AI messages get checked.** The AI's own German isn't automatically reliable either —
+  this whole feature started from spotting a garbled `llama3.1:8b` reply.
+- **Shown inline in the chat bubble**, not tucked in the debug panel: a ✓ badge on a correct message, a
+  "→ corrected: ..." line directly under an incorrect one. No click-to-reveal.
+- **Runs automatically after every turn**, fired as a background task so it doesn't block the
+  perceived voice-to-voice latency of the main pipeline — the badge may land a beat after the
+  reply/audio does.
+- **Separate, fixed check model** via a new `GRAMMAR_CHECK_MODEL` env var, defaulting to
+  `cas/discolm-mfto-german:latest`. Not selectable from the UI — a backend concern like `LLM_MODEL`.
+- Prompt/parsing contract was hand-validated against the running model before writing this plan: a
+  system prompt asking for exactly `OK` or `CORRECTED: <sentence>` returned a cleanly parseable reply
+  for a correct AI-style sentence, a broken AI-style sentence, and a broken user-style sentence (all
+  three via direct `curl` to the Ollama endpoint).
+
+## Grammar-check steps
+
+- [x] 13. `check_grammar()` helper + config (`voicechat2.py`)
+      Add `GRAMMAR_CHECK_MODEL` env var (default `cas/discolm-mfto-german:latest`). Add
+      `async def check_grammar(text: str) -> dict | None` that posts one non-streaming chat completion
+      to `LLM_ENDPOINT` with a fixed system prompt (see above), and parses the reply into
+      `{"correct": True, "corrected": None}` or `{"correct": False, "corrected": "..."}`. Returns `None`
+      if the reply doesn't cleanly start with `OK` or `CORRECTED:`, or the request errors — the caller
+      skips sending an update rather than show a wrong badge.
+      Verify: pytest mocking the HTTP call for the OK / CORRECTED / unparseable-reply / request-error
+      cases, asserting the right return value (including `None`) for each.
+      Note: no async-test plugin exists in this project (`requirements-dev.txt` has plain `pytest`, no
+      `pytest-asyncio`), so each new test drives the coroutine with a plain `asyncio.run(...)` inside a
+      normal sync test function rather than adding a new dependency for one function. Reused the
+      existing `_fake_client_session`/`_FailingSession` helpers already in `test_voicechat2.py`
+      unchanged. 4 new pytest cases; `ruff check`, `ruff format --check`, `mypy`, `pytest -q`
+      (43 passed) all green.
+
+- [ ] 14. Wire into the websocket pipeline (turn ids + background tasks)
+      Include the session's current `turn_id` in the existing `{"type": "transcription", ...}` send.
+      Right after that send, `asyncio.create_task` a `check_grammar` call for the user's text; in
+      `generate_llm_response`, right after `add_ai_message`, do the same for `complete_text`. Each task
+      sends `{"type": "grammar_check", "role": "user"|"assistant", "turn": ..., "correct": ...,
+      "corrected": ...}` once its check resolves, or sends nothing if `check_grammar` returned `None`.
+      Wrap each task's websocket send in a try/except so a client that's since disconnected doesn't
+      raise unhandled inside a background task.
+      Verify: pytest against a stubbed `check_grammar`, asserting the websocket receives a
+      `grammar_check` message with the right `turn`/`role` for both a user turn and an AI turn, and
+      that a `None` result sends nothing.
+
+- [ ] 15. Front-end: badge/correction rendering (`ui/js/chat.js`, `ui/css/chat.css`)
+      `displayMessage(role, content, turn)` stores `data-turn`/`data-role` on the element and keeps a
+      `messageElements` map keyed by `` `${turn}-${role}` ``; the `transcription` handler passes
+      `message.turn` and remembers it as `currentTurn` so the AI bubble `updateAIResponse` creates
+      carries the same turn. A new `grammar_check` message handler looks up the element and appends a
+      ✓ badge (if `correct`) or a muted "→ corrected: ..." line (if not) — skips silently if the
+      element's gone.
+      Verify: manual browser pass. There's no text-input path (mic only), so after a real push-to-talk
+      exchange, send a fabricated `grammar_check` message through the open websocket from the devtools
+      console for that turn's user and AI bubbles, confirm the badge/correction appears on the right
+      one, styled consistently in light and dark theme.
