@@ -74,6 +74,10 @@ to the non-Docker setup below; it's Linux-only, which is fine here. The
 (`/piper`) rather than copying it into the image — Piper is a self-contained
 native binary (confirmed via `ldd`: only its own bundled `.so`s plus
 standard glibc/libstdc++), so mounting avoids duplicating the model file.
+`ui/` itself is `COPY`'d into the image at build time, not bind-mounted —
+editing anything under `ui/` needs `docker compose up -d --build vc2` (or a
+full `--build`) before it's visible at `localhost:8010`; a plain restart
+won't pick it up.
 
 **Manual (`.venv`, for local dev/debugging):**
 
