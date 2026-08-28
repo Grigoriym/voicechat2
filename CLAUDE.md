@@ -25,7 +25,11 @@ vars (see `run.sh`), orchestrated by `run.sh`/`stop.sh`:
 | `tts-server-piper.py` | 8003 | TTS. Shells out to the Piper binary + German voice under `~/data/piper`, same as `~/bin/deutsch`. |
 
 LLM is Ollama's OpenAI-compatible endpoint (`localhost:11434/v1/chat/completions`,
-model `llama3.1:8b` by default) — not llama.cpp.
+model `llama3.1:8b` by default) — not llama.cpp. The model is **per-session, not
+fixed at startup**: `GET /api/models` proxies Ollama's `/api/tags` for the UI's
+dropdown, and a `{"action": "set_model", "model": "..."}` websocket message
+updates `conversation_manager.sessions[id]["model"]`, read fresh by
+`generate_llm_response` on every turn. `LLM_MODEL` is only the default.
 
 Port 8000 (upstream's default for the orchestrator) is already held by
 something else on this machine, so this fork runs on **8010**.
