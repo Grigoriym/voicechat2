@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 11/12 — Current step: none
+Progress: 12/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -287,8 +287,19 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       function name's occurrence count). `ruff check`, `ruff format --check`, `mypy`, `pytest -q`
       (37 passed) all green, unchanged from step 10 since no files needed touching.
 
-- [ ] 12. Docker/static-serving check
+- [x] 12. Docker/static-serving check
       Confirm the `/` route and the `/ui` `StaticFiles` mount in `voicechat2.py` still serve the
       right entry file — `index.html` is the Setup screen now, not the conversation screen.
       Verify: `docker compose up -d --build`, browser hit on `localhost:8010`, confirm the Setup
       screen loads first and Start correctly reaches the conversation screen.
+      Note: routes were already correct from step 9's `/chat.html` addition — `/` → `ui/index.html`
+      (Setup), `/chat.html` → `ui/chat.html` (Conversation), and the `/ui` `StaticFiles` mount
+      serves both files directly too (`/ui/index.html`, `/ui/chat.html`). No code changes needed;
+      this step was pure verification. `docker compose up -d --build` rebuilt all three
+      containers; curled all four paths (`/`, `/chat.html`, `/ui/index.html`, `/ui/chat.html`),
+      all 200, with `<title>` confirming the right page each time ("voicechat2 — Setup" /
+      "voicechat2 — Conversation"). Verified live via Chrome automation: loaded `localhost:8010`,
+      confirmed the Setup screen renders first (scenario list, model dropdown, all four health
+      badges green); clicked "Start conversation" and landed on `/chat.html` with
+      "scenario: General / free talk · model: llama3.1:8b" correctly carried over via
+      `sessionStorage`; no console errors. This closes out the UI rework checklist (12/12).
