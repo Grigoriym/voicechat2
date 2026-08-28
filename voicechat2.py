@@ -368,6 +368,28 @@ async def check_grammar(text: str) -> dict | None:
     return None
 
 
+async def send_grammar_check(websocket, role, turn_id, text):
+    """Runs check_grammar and, if it parsed, sends the result over
+    websocket. Meant to be fired via asyncio.create_task so it doesn't block
+    the caller; swallows send errors since the client may have disconnected
+    by the time the check resolves."""
+    result = await check_grammar(text)
+    if result is None:
+        return
+    try:
+        await websocket.send_json(
+            {
+                "type": "grammar_check",
+                "role": role,
+                "turn": turn_id,
+                "correct": result["correct"],
+                "corrected": result["corrected"],
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send grammar_check (client likely disconnected): {e}")
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -433,10 +455,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
                                 # Send transcribed text to client
                                 await websocket.send_json(
-                                    {"type": "transcription", "content": text}
+                                    {"type": "transcription", "content": text, "turn": turn_id}
+                                )
+                                asyncio.create_task(
+                                    send_grammar_check(websocket, "user", turn_id, text)
                                 )
 
-                                await process_and_stream(websocket, session_id, text)
+                                await process_and_stream(websocket, session_id, text, turn_id)
 
                                 latencies = conversation_manager.calculate_latencies(session_id)
                                 await websocket.send_json(
@@ -464,16 +489,16 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1011, reason=str(e))
 
 
-async def process_and_stream(websocket: WebSocket, session_id, text):
+async def process_and_stream(websocket: WebSocket, session_id, text, turn_id):
     try:
         # We interleave LLM and TTS output here
-        await generate_llm_response(websocket, session_id, text)
+        await generate_llm_response(websocket, session_id, text, turn_id)
     finally:
         conversation_manager.sessions[session_id]["is_processing"] = False
         conversation_manager.sessions[session_id]["first_audio_sent"] = False
 
 
-async def generate_llm_response(websocket, session_id, text):
+async def generate_llm_response(websocket, session_id, text, turn_id):
     conversation_manager.update_latency_metric(session_id, "llm_start", time.time())
     try:
         # conversation already ends with this turn's user message (added by the
@@ -567,6 +592,7 @@ async def generate_llm_response(websocket, session_id, text):
 
             conversation_manager.add_ai_message(session_id, complete_text)
             logger.debug(complete_text)
+            asyncio.create_task(send_grammar_check(websocket, "assistant", turn_id, complete_text))
 
     except Exception as e:
         logger.error(f"LLM error: {str(e)}")

@@ -433,3 +433,138 @@ def test_check_grammar_returns_none_on_request_error(voicechat2, monkeypatch):
     result = asyncio.run(voicechat2.check_grammar("Hallo!"))
 
     assert result is None
+
+
+class _FakeWebSocket:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, data):
+        self.sent.append(data)
+
+
+def test_send_grammar_check_sends_message_when_check_grammar_parses(voicechat2, monkeypatch):
+    async def fake_check_grammar(text):
+        assert text == "Ich bin ein Test."
+        return {"correct": False, "corrected": "Ich bin ein Test!"}
+
+    monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
+    ws = _FakeWebSocket()
+
+    asyncio.run(voicechat2.send_grammar_check(ws, "user", 3, "Ich bin ein Test."))
+
+    assert ws.sent == [
+        {
+            "type": "grammar_check",
+            "role": "user",
+            "turn": 3,
+            "correct": False,
+            "corrected": "Ich bin ein Test!",
+        }
+    ]
+
+
+def test_send_grammar_check_sends_nothing_when_check_grammar_returns_none(voicechat2, monkeypatch):
+    async def fake_check_grammar(text):
+        return None
+
+    monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
+    ws = _FakeWebSocket()
+
+    asyncio.run(voicechat2.send_grammar_check(ws, "assistant", 1, "some text"))
+
+    assert ws.sent == []
+
+
+def test_websocket_sends_grammar_check_for_user_turn(voicechat2, monkeypatch):
+    async def fake_transcribe_audio(audio_data, session_id, turn_id):
+        return "Ich bin ein Test."
+
+    monkeypatch.setattr(voicechat2, "transcribe_audio", fake_transcribe_audio)
+
+    async def fake_check_grammar(text):
+        assert text == "Ich bin ein Test."
+        return {"correct": True, "corrected": None}
+
+    monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
+
+    async def fake_process_and_stream(websocket, session_id, text, turn_id):
+        return None
+
+    monkeypatch.setattr(voicechat2, "process_and_stream", fake_process_and_stream)
+
+    client = TestClient(voicechat2.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_bytes(b"fake-audio-bytes")
+        ws.send_json({"action": "stop_recording"})
+
+        # Exactly 4 sends happen on this path: transcription, grammar_check
+        # (user), latency_metrics, processing_complete.
+        messages = [ws.receive_json() for _ in range(4)]
+
+    transcription = next(m for m in messages if m["type"] == "transcription")
+    assert transcription == {"type": "transcription", "content": "Ich bin ein Test.", "turn": 0}
+
+    grammar_check = next(m for m in messages if m["type"] == "grammar_check")
+    assert grammar_check == {
+        "type": "grammar_check",
+        "role": "user",
+        "turn": 0,
+        "correct": True,
+        "corrected": None,
+    }
+
+
+def test_generate_llm_response_sends_grammar_check_for_assistant_turn(voicechat2, monkeypatch):
+    async def fake_check_grammar(text):
+        assert text == "Hallo."
+        return {"correct": False, "corrected": "Hallo!"}
+
+    monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
+
+    async def fake_generate_and_send_tts(websocket, text):
+        return None
+
+    monkeypatch.setattr(voicechat2, "generate_and_send_tts", fake_generate_and_send_tts)
+
+    class _FakeStreamResponse:
+        async def _lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"Hallo."}}]}\n'
+            yield b"data: [DONE]\n"
+
+        @property
+        def content(self):
+            return self._lines()
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def post(self, url, **kwargs):
+            return _FakeAsyncCM(_FakeStreamResponse())
+
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", lambda *a, **kw: _FakeSession())
+
+    session_id = voicechat2.conversation_manager.create_session()
+    voicechat2.conversation_manager.add_user_message(session_id, "Wie geht's?")
+    ws = _FakeWebSocket()
+
+    async def run():
+        await voicechat2.generate_llm_response(ws, session_id, "Wie geht's?", 0)
+        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if pending:
+            await asyncio.gather(*pending)
+
+    asyncio.run(run())
+
+    grammar_check = next(m for m in ws.sent if m.get("type") == "grammar_check")
+    assert grammar_check == {
+        "type": "grammar_check",
+        "role": "assistant",
+        "turn": 0,
+        "correct": False,
+        "corrected": "Hallo!",
+    }

@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 1/3 — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 2/3 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -344,7 +344,7 @@ Decided up front, don't re-litigate:
       unchanged. 4 new pytest cases; `ruff check`, `ruff format --check`, `mypy`, `pytest -q`
       (43 passed) all green.
 
-- [ ] 14. Wire into the websocket pipeline (turn ids + background tasks)
+- [x] 14. Wire into the websocket pipeline (turn ids + background tasks)
       Include the session's current `turn_id` in the existing `{"type": "transcription", ...}` send.
       Right after that send, `asyncio.create_task` a `check_grammar` call for the user's text; in
       `generate_llm_response`, right after `add_ai_message`, do the same for `complete_text`. Each task
@@ -355,6 +355,22 @@ Decided up front, don't re-litigate:
       Verify: pytest against a stubbed `check_grammar`, asserting the websocket receives a
       `grammar_check` message with the right `turn`/`role` for both a user turn and an AI turn, and
       that a `None` result sends nothing.
+      Note: factored the shared "await check_grammar, then send the result" logic into a new
+      `send_grammar_check(websocket, role, turn_id, text)` helper (called via `asyncio.create_task`
+      from both call sites) rather than duplicating the parse-and-send/try-except block in two places.
+      `process_and_stream` and `generate_llm_response` both gained a `turn_id` parameter to carry it
+      from the websocket handler (where it's already computed, pre-existing, for the whisper temp-file
+      name) through to the AI-turn task. `turn_id` is the pre-increment `current_turn` captured before
+      `add_user_message` runs, so the user and AI grammar-check messages for one exchange share the
+      same `turn` value — matches step 15's plan of keying `messageElements` by `` `${turn}-${role}` ``.
+      4 new pytest cases in `test/test_voicechat2.py`: two unit tests calling `send_grammar_check`
+      directly against a fake websocket (message-sent case, `None`-result-sends-nothing case); one
+      through an actual `TestClient.websocket_connect("/ws")` round-trip (transcribe_audio/check_grammar/
+      process_and_stream stubbed) asserting the live transcription message carries `turn` and a
+      `grammar_check` with `role: "user"` arrives with the same turn; one calling `generate_llm_response`
+      directly (aiohttp streaming response and check_grammar stubbed, background tasks drained via
+      `asyncio.gather` after the call) asserting the `role: "assistant"` message. `ruff check`,
+      `ruff format --check`, `mypy`, `pytest -q` (47 passed) all green.
 
 - [ ] 15. Front-end: badge/correction rendering (`ui/js/chat.js`, `ui/css/chat.css`)
       `displayMessage(role, content, turn)` stores `data-turn`/`data-role` on the element and keeps a
