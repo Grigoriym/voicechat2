@@ -104,7 +104,24 @@
             border-radius: 999px;
             padding: 0.3rem 0.9rem;
             font-size: 0.85rem;
-            margin-bottom: 1rem;
+        }
+
+        .model-row {
+            margin: 0.6rem 0 1rem;
+            font-size: 0.85rem;
+            color: #555;
+        }
+        .model-row select {
+            font-size: 0.85rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            border: 1px solid #c9dcf5;
+            background: white;
+        }
+        #modelStatus {
+            font-size: 0.75rem;
+            color: #888;
+            margin-left: 0.4rem;
         }
 
         .meter-wrap {
@@ -196,6 +213,11 @@
     <div class="container">
         <h1>voicechat2</h1>
         <div class="lang-badge">🇩🇪 Deutsch — Whisper (STT) → Ollama (LLM) → Piper (TTS)</div>
+
+        <div class="model-row">
+            LLM-Modell: <select id="modelSelect"><option>lädt…</option></select>
+            <span id="modelStatus"></span>
+        </div>
 
         <div class="meter-wrap">
             <div class="meter-label">Mikrofonpegel — live, auch ohne Aufnahme (beweist, dass der Browser das Mikro hört)</div>
@@ -781,6 +803,10 @@
                 status.textContent = 'Ready';
                 recordButton.disabled = false;
                 startLatencyMeasurement();
+                const modelSelect = document.getElementById('modelSelect');
+                if (modelSelect.value) {
+                    socket.send(JSON.stringify({ action: 'set_model', model: modelSelect.value }));
+                }
                 resolve(socket);
         };
 
@@ -844,6 +870,8 @@
                         } else if (message.type === 'error') {
                             log(`Error from server: ${message.message}`);
                             status.textContent = 'Error';
+                        } else if (message.type === 'model_set') {
+                            document.getElementById('modelStatus').textContent = `aktiv: ${message.model}`;
                         }
                     } catch (error) {
                         log(`Error parsing server message: ${error.message}`);
@@ -887,9 +915,36 @@
 
         let recordingEndTime;
         let firstResponseTime;
-        
+
+        async function initModelSelector() {
+            const select = document.getElementById('modelSelect');
+            try {
+                const resp = await fetch('/api/models');
+                const data = await resp.json();
+                select.innerHTML = '';
+                for (const name of data.models) {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    if (name === data.default) opt.selected = true;
+                    select.appendChild(opt);
+                }
+                document.getElementById('modelStatus').textContent = `aktiv: ${data.default}`;
+            } catch (error) {
+                select.innerHTML = '<option value="">(Modellliste nicht verfügbar)</option>';
+                log(`Error loading model list: ${error.message}`);
+            }
+
+            select.addEventListener('change', () => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ action: 'set_model', model: select.value }));
+                }
+            });
+        }
+
         // Initialize recorder and WebSocket when the page loads
         window.onload = async () => {
+            await initModelSelector();
             await initializeRecorder();
             log('Recorder ready (MediaRecorder)');
 

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 SRT_ENDPOINT = os.getenv("SRT_ENDPOINT", "http://localhost:8001/inference")
 LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434/v1/chat/completions")
 LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
+OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434")
 TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "http://localhost:8003/tts")
 
 logging.basicConfig(level=logging.DEBUG)
@@ -46,6 +47,7 @@ class ConversationManager:
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = {
             "conversation": [SYSTEM],
+            "model": LLM_MODEL,
             "llm_output_sentences": deque(),
             "current_turn": 0,
             "is_processing": False,
@@ -187,6 +189,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         await websocket.send_json({
                             "type": "pong"
                         })
+                    elif data.get("action") == "set_model":
+                        model = data.get("model")
+                        if model:
+                            conversation_manager.sessions[session_id]["model"] = model
+                            logger.info(f"Session {session_id} switched to model: {model}")
+                            await websocket.send_json({"type": "model_set", "model": model})
                     elif data.get("action") == "stop_recording":
                         logger.info("Stop recording message received. Processing audio...")
                         conversation_manager.reset_latency_metrics(session_id)
@@ -251,10 +259,11 @@ async def generate_llm_response(websocket, session_id, text):
         # conversation already ends with this turn's user message (added by the
         # caller via add_user_message before process_and_stream was invoked)
         conversation = conversation_manager.get_conversation(session_id)
+        model = conversation_manager.sessions[session_id]["model"]
 
         async with aiohttp.ClientSession() as session:
             async with session.post(LLM_ENDPOINT, json={
-                "model": LLM_MODEL,
+                "model": model,
                 "messages": conversation,
                 "stream": True
             }) as response:
@@ -351,6 +360,19 @@ def process_sentence(sentence):
     sentence = re.sub(r"(\*[^*]+\*)|(_[^_]+_)", "", sentence)
     sentence = re.sub(r'[^\x00-\x7F]+', '', sentence)
     return sentence.strip()
+
+
+@app.get("/api/models")
+async def list_models():
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{OLLAMA_BASE}/api/tags", timeout=aiohttp.ClientTimeout(total=5)) as response:
+                data = await response.json()
+        models = sorted(m["name"] for m in data.get("models", []))
+        return {"models": models, "default": LLM_MODEL}
+    except Exception as e:
+        logger.error(f"Failed to list Ollama models: {str(e)}")
+        return {"models": [LLM_MODEL], "default": LLM_MODEL}
 
 
 @app.get("/")
