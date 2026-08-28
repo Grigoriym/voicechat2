@@ -61,6 +61,27 @@ hitting the existing "empty text" error path — fixed by short-circuiting
 on empty `audio_content` before it ever reaches the whisper webservice.
 Full diff-level detail in `~/claude/german/voice-setup.md`.
 
+## Client-side recording: MediaRecorder, not the bundled opus-encdec library
+
+The push-to-talk/VAD capture in `ui/index.html` used to go through the CDN
+`symbl-opus-encdec` library (still loaded, still used by the VAD path). That
+library loads its actual Opus encoder from a hardcoded third-party URL
+(a Symbl.ai storage bucket) — now returns 403, and even a live mirror
+(jsdelivr) wasn't enough to fix it, so something else in that
+2-year-unmaintained chain is also broken. Symptom: `recorder.start()`/
+`.stop()` resolved normally and the UI looked fine, but `onstart`/
+`ondataavailable`/`onstop` never fired — every recording was silently
+0 bytes, with zero console errors, reproduced identically on two different
+machines. Debugging that took a full session; see
+`~/claude/german/voice-setup.md` for the trace if it recurs.
+
+The push-to-talk path now uses the browser's native `MediaRecorder`
+(`audio/webm;codecs=opus`) instead — no external script, no worker, nothing
+to rot. **VAD mode still uses the old broken path and is not fixed** (it's
+labeled experimental in the UI on purpose); if VAD needs to work, give it
+the same MediaRecorder treatment rather than debugging the old library
+further.
+
 ## Gotchas
 
 - `srt-server.py` and `voicechat2.py` had several **dead top-level imports**
