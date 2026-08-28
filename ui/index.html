@@ -212,28 +212,28 @@
 <body>
     <div class="container">
         <h1>voicechat2</h1>
-        <div class="lang-badge">🇩🇪 Deutsch — Whisper (STT) → Ollama (LLM) → Piper (TTS)</div>
+        <div class="lang-badge">🇩🇪 German — Whisper (STT) → Ollama (LLM) → Piper (TTS)</div>
 
         <div class="model-row">
-            LLM-Modell: <select id="modelSelect"><option>lädt…</option></select>
+            LLM model: <select id="modelSelect"><option>loading…</option></select>
             <span id="modelStatus"></span>
-            <button id="unloadModelBtn" class="secondary-btn" type="button">GPU-Speicher freigeben</button>
+            <button id="unloadModelBtn" class="secondary-btn" type="button">Free GPU memory</button>
         </div>
 
         <div class="meter-wrap">
-            <div class="meter-label">Mikrofonpegel — live, auch ohne Aufnahme (beweist, dass der Browser das Mikro hört)</div>
+            <div class="meter-label">Microphone level — live, even without recording (confirms the browser can hear the mic)</div>
             <div class="meter-track"><div id="micMeterFill" class="meter-fill"></div></div>
-            <div class="meter-hint" id="micMeterHint">Warte auf Mikrofonzugriff…</div>
+            <div class="meter-hint" id="micMeterHint">Waiting for microphone access…</div>
         </div>
 
-        <button id="recordButton" class="record-btn">🎤 Gedrückt halten zum Sprechen</button>
-        <p>oder Leertaste gedrückt halten</p>
+        <button id="recordButton" class="record-btn">🎤 Hold to talk</button>
+        <p>or hold spacebar</p>
 
-        <div id="status" class="status-badge status-ready">Bereit</div>
+        <div id="status" class="status-badge status-ready">Ready</div>
         <div id="lastCapture"></div>
 
         <div id="timer">00:00:000</div>
-        <button id="vadToggle" class="secondary-btn">Automatische Spracherkennung aktivieren (experimentell)</button>
+        <button id="vadToggle" class="secondary-btn">Enable Voice Auto Detection (experimental)</button>
 
         <div id="latencyMetrics">
             <table>
@@ -377,8 +377,6 @@
                 }
                 updateStatus('VAD enabled');
             }
-
-            updateStatuss
         }
         async function pauseVAD() {
             if(isVADEnabled) {
@@ -696,9 +694,9 @@
                 fill.classList.toggle('loud', level > 0.4 && level <= 0.8);
                 fill.classList.toggle('clip', level > 0.8);
                 if (level > 0.03) {
-                    hint.textContent = 'Mikrofon empfängt Ton ✓';
+                    hint.textContent = 'Microphone receiving audio ✓';
                 } else {
-                    hint.textContent = 'Kein Ton erkannt — sprich, um den Balken zu testen';
+                    hint.textContent = 'No audio detected — speak to test the meter';
                 }
                 requestAnimationFrame(tick);
             }
@@ -709,10 +707,10 @@
             const captureEl = document.getElementById('lastCapture');
             if (blob.size < 500) {
                 captureEl.className = 'bad';
-                captureEl.textContent = `⚠️ Letzte Aufnahme: ${blob.size} Bytes / ${durationS}s — praktisch leer, wurde nichts aufgenommen`;
+                captureEl.textContent = `⚠️ Last capture: ${blob.size} bytes / ${durationS}s — essentially empty, nothing was recorded`;
             } else {
                 captureEl.className = 'ok';
-                captureEl.textContent = `✓ Letzte Aufnahme: ${blob.size} Bytes / ${durationS}s`;
+                captureEl.textContent = `✓ Last capture: ${blob.size} bytes / ${durationS}s`;
             }
         }
 
@@ -730,8 +728,8 @@
         // ffmpeg inside the whisper webservice decodes that container the
         // same as it already did the old ogg/opus one.
         //
-        // NOTE: the VAD ("Automatische Spracherkennung") path still uses the
-        // old library's monkeypatched encodeAudio() and has the same root
+        // NOTE: the VAD ("Voice Auto Detection") path still uses the old
+        // library's monkeypatched encodeAudio() and has the same root
         // issue -- not fixed here, since push-to-talk is the primary path.
         async function initializeRecorder() {
             const { stream, sourceNode } = await createSourceNode();
@@ -872,7 +870,7 @@
                             log(`Error from server: ${message.message}`);
                             status.textContent = 'Error';
                         } else if (message.type === 'model_set') {
-                            document.getElementById('modelStatus').textContent = `aktiv: ${message.model}`;
+                            document.getElementById('modelStatus').textContent = `active: ${message.model}`;
                         }
                     } catch (error) {
                         log(`Error parsing server message: ${error.message}`);
@@ -930,9 +928,9 @@
                     if (name === data.default) opt.selected = true;
                     select.appendChild(opt);
                 }
-                document.getElementById('modelStatus').textContent = `aktiv: ${data.default}`;
+                document.getElementById('modelStatus').textContent = `active: ${data.default}`;
             } catch (error) {
-                select.innerHTML = '<option value="">(Modellliste nicht verfügbar)</option>';
+                select.innerHTML = '<option value="">(model list unavailable)</option>';
                 log(`Error loading model list: ${error.message}`);
             }
 
@@ -949,19 +947,19 @@
             btn.addEventListener('click', async () => {
                 btn.disabled = true;
                 const previousStatus = statusEl.textContent;
-                statusEl.textContent = 'entlade…';
+                statusEl.textContent = 'unloading…';
                 try {
                     const resp = await fetch('/api/unload-model', { method: 'POST' });
                     const data = await resp.json();
                     if (data.error) {
-                        statusEl.textContent = `Fehler: ${data.error}`;
+                        statusEl.textContent = `Error: ${data.error}`;
                     } else if (data.unloaded.length) {
-                        statusEl.textContent = `entladen: ${data.unloaded.join(', ')}`;
+                        statusEl.textContent = `unloaded: ${data.unloaded.join(', ')}`;
                     } else {
-                        statusEl.textContent = 'kein Modell geladen';
+                        statusEl.textContent = 'no model loaded';
                     }
                 } catch (error) {
-                    statusEl.textContent = `Fehler: ${error.message}`;
+                    statusEl.textContent = `Error: ${error.message}`;
                 } finally {
                     btn.disabled = false;
                     setTimeout(() => { statusEl.textContent = previousStatus; }, 4000);
