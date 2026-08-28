@@ -9,9 +9,10 @@ from collections import deque
 from urllib.parse import urlsplit
 
 import aiohttp
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 # External endpoints
 SRT_ENDPOINT = os.getenv("SRT_ENDPOINT", "http://localhost:8001/inference")
@@ -138,7 +139,22 @@ def create_custom_scenario(
     return custom[scenario_id]
 
 
+def update_custom_scenario(
+    scenario_id: str, label: str, prompt: str, path: str = CUSTOM_SCENARIOS_PATH
+) -> dict:
+    if scenario_id in SCENARIOS:
+        raise ValueError(f"'{scenario_id}' is a built-in scenario and can't be edited")
+    custom = load_custom_scenarios(path)
+    if scenario_id not in custom:
+        raise ValueError(f"custom scenario '{scenario_id}' not found")
+    custom[scenario_id] = {"label": label, "prompt": prompt}
+    save_custom_scenarios(custom, path)
+    return custom[scenario_id]
+
+
 def delete_custom_scenario(scenario_id: str, path: str = CUSTOM_SCENARIOS_PATH) -> None:
+    if scenario_id in SCENARIOS:
+        raise ValueError(f"'{scenario_id}' is a built-in scenario and can't be deleted")
     custom = load_custom_scenarios(path)
     if scenario_id not in custom:
         raise ValueError(f"custom scenario '{scenario_id}' not found")
@@ -153,7 +169,8 @@ def get_all_scenarios(path: str = CUSTOM_SCENARIOS_PATH) -> dict:
 
 
 def build_system_message(scenario: str) -> dict:
-    scenario_prompt = SCENARIOS.get(scenario, SCENARIOS[DEFAULT_SCENARIO])["prompt"]
+    all_scenarios = get_all_scenarios(CUSTOM_SCENARIOS_PATH)
+    scenario_prompt = all_scenarios.get(scenario, all_scenarios[DEFAULT_SCENARIO])["prompt"]
     content = BASE_SYSTEM_PROMPT
     if scenario_prompt:
         content = f"{BASE_SYSTEM_PROMPT}\n\n{scenario_prompt}"
@@ -333,7 +350,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             await websocket.send_json({"type": "model_set", "model": model})
                     elif data.get("action") == "set_scenario":
                         scenario = data.get("scenario")
-                        if scenario in SCENARIOS:
+                        if scenario in get_all_scenarios(CUSTOM_SCENARIOS_PATH):
                             conversation_manager.set_scenario(session_id, scenario)
                             logger.info(f"Session {session_id} switched to scenario: {scenario}")
                             await websocket.send_json(
@@ -534,15 +551,63 @@ async def list_models():
         return {"models": [LLM_MODEL], "default": LLM_MODEL}
 
 
+class ScenarioCreate(BaseModel):
+    id: str
+    label: str
+    prompt: str = ""
+
+
+class ScenarioUpdate(BaseModel):
+    label: str
+    prompt: str = ""
+
+
 @app.get("/api/scenarios")
 async def list_scenarios():
+    all_scenarios = get_all_scenarios(CUSTOM_SCENARIOS_PATH)
     return {
         "scenarios": [
-            {"id": scenario_id, "label": scenario["label"]}
-            for scenario_id, scenario in SCENARIOS.items()
+            {
+                "id": scenario_id,
+                "label": scenario["label"],
+                "prompt": scenario["prompt"],
+                "is_builtin": scenario_id in SCENARIOS,
+            }
+            for scenario_id, scenario in all_scenarios.items()
         ],
         "default": DEFAULT_SCENARIO,
     }
+
+
+@app.post("/api/scenarios")
+async def create_scenario(scenario: ScenarioCreate):
+    try:
+        created = create_custom_scenario(
+            scenario.id, scenario.label, scenario.prompt, CUSTOM_SCENARIOS_PATH
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"id": scenario.id, **created, "is_builtin": False}
+
+
+@app.put("/api/scenarios/{scenario_id}")
+async def edit_scenario(scenario_id: str, scenario: ScenarioUpdate):
+    try:
+        updated = update_custom_scenario(
+            scenario_id, scenario.label, scenario.prompt, CUSTOM_SCENARIOS_PATH
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"id": scenario_id, **updated, "is_builtin": False}
+
+
+@app.delete("/api/scenarios/{scenario_id}")
+async def remove_scenario(scenario_id: str):
+    try:
+        delete_custom_scenario(scenario_id, CUSTOM_SCENARIOS_PATH)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"deleted": scenario_id}
 
 
 @app.get("/api/health")

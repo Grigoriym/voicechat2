@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 5/12 — Current step: none
+Progress: 6/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -126,11 +126,30 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       `test/test_voicechat2.py`; `ruff check`, `ruff format --check`, `mypy`, `pytest -q`
       (29 passed) all green.
 
-- [ ] 6. Scenario CRUD endpoints
+- [x] 6. Scenario CRUD endpoints
       `POST /api/scenarios` (create), `PUT /api/scenarios/{id}` (edit, custom only),
       `DELETE /api/scenarios/{id}` (delete, custom only). `GET /api/scenarios` now also returns
       the full prompt text and an `is_builtin` flag per scenario.
       Verify: pytest + curl round-trip; editing/deleting a built-in id returns 4xx.
+      Note: added `update_custom_scenario` (step 5 only had create/delete) and tightened
+      `delete_custom_scenario` to reject a built-in id with a clear message instead of falling
+      through to "not found" (it wasn't in the custom store either way, but the message was
+      misleading). Also completed the wiring step 5's note flagged as this step's job:
+      `build_system_message` and the websocket `set_scenario` handler now check
+      `get_all_scenarios()` instead of the hardcoded `SCENARIOS` dict, so a custom scenario is
+      actually usable in a conversation, not just creatable. Request bodies use small pydantic
+      `BaseModel`s (`ScenarioCreate`, `ScenarioUpdate`) — first use of pydantic directly in this
+      file, though it's already a transitive FastAPI dependency. All four ValueError cases
+      (duplicate id, built-in edit, built-in delete, missing custom id) map to a flat 400,
+      matching the checklist's "4xx" bar without adding 403/404 branching the step didn't ask
+      for. 11 new pytest cases in `test/test_voicechat2.py` (function-level round-trips plus
+      `TestClient` HTTP round-trips against `/api/scenarios`, monkeypatching
+      `voicechat2.CUSTOM_SCENARIOS_PATH` to a `tmp_path` file); `ruff check`, `ruff format
+      --check`, `mypy`, `pytest -q` (37 passed) all green. Verified live: rebuilt+restarted the
+      `vc2` container, curled the full create → duplicate-reject(400) → edit-builtin-reject(400)
+      → delete-builtin-reject(400) → edit → list → delete → delete-missing-reject(400) sequence
+      against `localhost:8010`, all behaved as expected; `custom_scenarios.json` lives inside the
+      container only (not bind-mounted), confirmed nothing leaked into the repo afterward.
 
 - [ ] 7. Setup screen markup + layout (`ui/index.html` rewritten)
       Scenario list (built-ins badged), "New scenario" and "Clone & edit" flows (name + prompt

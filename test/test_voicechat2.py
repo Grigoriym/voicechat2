@@ -265,3 +265,112 @@ def test_delete_custom_scenario_missing_id_raises(voicechat2, tmp_path):
 
     with pytest.raises(ValueError):
         voicechat2.delete_custom_scenario("nope", path)
+
+
+def test_update_custom_scenario_round_trip(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+    voicechat2.create_custom_scenario("airport", "Airport", "Scenario: ...", path)
+
+    updated = voicechat2.update_custom_scenario("airport", "Airport (edited)", "New prompt", path)
+
+    assert updated == {"label": "Airport (edited)", "prompt": "New prompt"}
+    assert voicechat2.load_custom_scenarios(path) == {"airport": updated}
+
+
+def test_update_custom_scenario_rejects_builtin_id(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+
+    with pytest.raises(ValueError):
+        voicechat2.update_custom_scenario("general", "General", "...", path)
+
+
+def test_update_custom_scenario_missing_id_raises(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+
+    with pytest.raises(ValueError):
+        voicechat2.update_custom_scenario("nope", "Nope", "...", path)
+
+
+def test_delete_custom_scenario_rejects_builtin_id(voicechat2, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+
+    with pytest.raises(ValueError):
+        voicechat2.delete_custom_scenario("general", path)
+
+
+def test_scenarios_endpoint_round_trip(voicechat2, monkeypatch, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+    monkeypatch.setattr(voicechat2, "CUSTOM_SCENARIOS_PATH", path)
+    client = TestClient(voicechat2.app)
+
+    listing = client.get("/api/scenarios").json()
+    assert listing["default"] == "general"
+    general = next(s for s in listing["scenarios"] if s["id"] == "general")
+    assert general["is_builtin"] is True
+    assert general["prompt"] == ""
+
+    created = client.post(
+        "/api/scenarios", json={"id": "airport", "label": "Airport", "prompt": "Scenario: ..."}
+    )
+    assert created.status_code == 200
+    assert created.json() == {
+        "id": "airport",
+        "label": "Airport",
+        "prompt": "Scenario: ...",
+        "is_builtin": False,
+    }
+
+    listing = client.get("/api/scenarios").json()
+    airport = next(s for s in listing["scenarios"] if s["id"] == "airport")
+    assert airport == {
+        "id": "airport",
+        "label": "Airport",
+        "prompt": "Scenario: ...",
+        "is_builtin": False,
+    }
+
+    edited = client.put(
+        "/api/scenarios/airport", json={"label": "Airport (edited)", "prompt": "New prompt"}
+    )
+    assert edited.status_code == 200
+    assert edited.json()["label"] == "Airport (edited)"
+
+    deleted = client.delete("/api/scenarios/airport")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": "airport"}
+
+    listing = client.get("/api/scenarios").json()
+    assert not any(s["id"] == "airport" for s in listing["scenarios"])
+
+
+def test_scenarios_endpoint_rejects_duplicate_id(voicechat2, monkeypatch, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+    monkeypatch.setattr(voicechat2, "CUSTOM_SCENARIOS_PATH", path)
+    client = TestClient(voicechat2.app)
+    client.post("/api/scenarios", json={"id": "airport", "label": "Airport", "prompt": "..."})
+
+    response = client.post(
+        "/api/scenarios", json={"id": "airport", "label": "Airport again", "prompt": "..."}
+    )
+
+    assert response.status_code == 400
+
+
+def test_scenarios_endpoint_rejects_editing_builtin(voicechat2, monkeypatch, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+    monkeypatch.setattr(voicechat2, "CUSTOM_SCENARIOS_PATH", path)
+    client = TestClient(voicechat2.app)
+
+    response = client.put("/api/scenarios/general", json={"label": "General", "prompt": "x"})
+
+    assert response.status_code == 400
+
+
+def test_scenarios_endpoint_rejects_deleting_builtin(voicechat2, monkeypatch, tmp_path):
+    path = str(tmp_path / "custom_scenarios.json")
+    monkeypatch.setattr(voicechat2, "CUSTOM_SCENARIOS_PATH", path)
+    client = TestClient(voicechat2.app)
+
+    response = client.delete("/api/scenarios/general")
+
+    assert response.status_code == 400
