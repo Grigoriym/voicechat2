@@ -140,6 +140,70 @@ def test_unload_model_returns_empty_when_nothing_loaded(voicechat2, monkeypatch)
     assert response.json() == {"unloaded": []}
 
 
+def test_health_reports_ok_when_all_services_are_up(voicechat2, monkeypatch):
+    responses = {
+        ("GET", "http://localhost:11434/api/tags"): {"models": []},
+        ("GET", "http://localhost:8001/health"): {"status": "ok"},
+        ("GET", "http://localhost:8003/health"): {"status": "ok"},
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ollama": {"status": "ok"},
+        "srt": {"status": "ok"},
+        "tts": {"status": "ok"},
+    }
+
+
+def test_health_forwards_a_service_reported_error(voicechat2, monkeypatch):
+    responses = {
+        ("GET", "http://localhost:11434/api/tags"): {"models": []},
+        ("GET", "http://localhost:8001/health"): {
+            "status": "error",
+            "detail": "connection refused",
+        },
+        ("GET", "http://localhost:8003/health"): {"status": "ok"},
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.get("/api/health")
+
+    data = response.json()
+    assert data["srt"] == {"status": "error", "detail": "connection refused"}
+    assert data["tts"] == {"status": "ok"}
+
+
+def test_health_reports_error_when_a_service_is_unreachable(voicechat2, monkeypatch):
+    class _PartlyFailingSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def get(self, url, **kwargs):
+            if url == "http://localhost:11434/api/tags":
+                return _FakeAsyncCM(_FakeResponse({"models": []}))
+            raise aiohttp.ClientConnectionError("boom")
+
+    monkeypatch.setattr(
+        voicechat2.aiohttp, "ClientSession", lambda *a, **kw: _PartlyFailingSession()
+    )
+    client = TestClient(voicechat2.app)
+
+    response = client.get("/api/health")
+
+    data = response.json()
+    assert data["ollama"] == {"status": "ok"}
+    assert data["srt"] == {"status": "error", "detail": "boom"}
+    assert data["tts"] == {"status": "error", "detail": "boom"}
+
+
 def test_unload_model_reports_error_when_ollama_unreachable(voicechat2, monkeypatch):
     class _FailingSession:
         async def __aenter__(self):

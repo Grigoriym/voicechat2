@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 3/12 — Current step: none
+Progress: 4/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -93,11 +93,23 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       endpoints' ok/error paths; `ruff check`, `ruff format`, `mypy`, and `pytest -q` (22 passed)
       all green.
 
-- [ ] 4. Aggregate health endpoint on the orchestrator
+- [x] 4. Aggregate health endpoint on the orchestrator
       `voicechat2.py` `GET /api/health`: calls Ollama's `/api/tags`, srt-server's `/health`, and
       tts-server's `/health` concurrently, returns per-service ok/error.
       Verify: pytest against a stubbed stack; curl it locally with the full `docker compose`
       stack up.
+      Note: srt/tts URLs are derived from `SRT_ENDPOINT`/`TTS_ENDPOINT` (existing env vars) by
+      swapping the path to `/health`, rather than adding two new env vars for the same hosts.
+      The srt/tts checks forward whatever JSON body their own `/health` returns (they already
+      distinguish ok/error with a `detail`); the Ollama check has no such body to forward, so it
+      just reports ok/error from whether the request succeeded, matching the no-status-check
+      style already used by `/api/models` and `/api/unload-model`. Added 3 pytest cases
+      (`test/test_voicechat2.py`): all-ok, one service's own `/health` reporting error, and the
+      orchestrator itself unable to reach a service. `ruff check`, `ruff format --check`,
+      `mypy`, and `pytest -q` (25 passed) all green. Verified live against the full
+      `docker compose` stack: rebuilt+restarted all three containers, curled `/api/health`
+      (all ok), stopped the `srt` container and curled again (srt reports the connection-refused
+      detail, ollama/tts stay ok), restarted `srt` and confirmed it went back to ok.
 
 - [ ] 5. Custom-scenario storage
       Load/save custom scenarios to a JSON file (gitignored) merged with the hardcoded

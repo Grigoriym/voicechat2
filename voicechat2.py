@@ -6,6 +6,7 @@ import time
 import traceback
 import uuid
 from collections import deque
+from urllib.parse import urlsplit
 
 import aiohttp
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -497,6 +498,45 @@ async def list_scenarios():
         ],
         "default": DEFAULT_SCENARIO,
     }
+
+
+@app.get("/api/health")
+async def health():
+    """Aggregate health check for the UI's setup screen: Ollama plus the
+    srt-server/tts-server /health endpoints added in the previous checklist
+    step. Each check is independent, so one service being down doesn't fail
+    the others."""
+
+    async def check_ollama():
+        try:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(
+                    f"{OLLAMA_BASE}/api/tags", timeout=aiohttp.ClientTimeout(total=5)
+                ) as response,
+            ):
+                await response.json()
+            return {"status": "ok"}
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}
+
+    async def check_service(url):
+        try:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response,
+            ):
+                return await response.json()
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}
+
+    srt_url = urlsplit(SRT_ENDPOINT)._replace(path="/health", query="", fragment="").geturl()
+    tts_url = urlsplit(TTS_ENDPOINT)._replace(path="/health", query="", fragment="").geturl()
+
+    ollama, srt, tts = await asyncio.gather(
+        check_ollama(), check_service(srt_url), check_service(tts_url)
+    )
+    return {"ollama": ollama, "srt": srt, "tts": tts}
 
 
 @app.post("/api/unload-model")
