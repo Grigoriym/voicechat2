@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done) — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 0/2 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -408,3 +408,35 @@ Decided up front, don't re-litigate:
       element (replaced, not duplicated), and one for an unknown turn (999) was silently ignored, no
       throw. `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (47 passed, unchanged — no Python
       touched this step) all still green. This closes out the grammar-check pass (3/3).
+
+## Backlog
+
+Small, independent follow-ups raised 2026-08-28 — no shared design decisions, no dependencies on
+each other or on anything above. Pick either up whenever; each still needs its own up-front
+design/scope decision before work starts, per the "Think before coding" working agreement.
+
+- [ ] 16. Apache-2.0 compliance check (this repo is a fork)
+      Upstream is [lhl/voicechat2](https://github.com/lhl/voicechat2), Apache-2.0 licensed; `LICENSE`
+      here still carries the upstream Apache-2.0 text verbatim (confirmed present, not yet re-checked
+      for drift). Apache-2.0 §4 requires, for a modified redistribution: (a) give any other recipients a
+      copy of the License — satisfied, `LICENSE` is in the repo; (b) carry prominent notices in modified
+      files stating that they were changed — not currently done anywhere (CLAUDE.md/README link back to
+      upstream, but no in-file "Modified from X" markers); (c) retain all copyright/patent/trademark/
+      attribution notices from the Source form — no upstream `NOTICE` file was seen to check against;
+      confirm whether upstream ships one; (d) if a NOTICE file is included, forward its contents. None of
+      this has been actually checked against upstream's current state — this step is that check.
+      Verify: no code changes expected — this is a compliance read. Conclude with either "no action
+      needed" (with the §4(a)-(d) reasoning) or a concrete, scoped follow-up (e.g. adding a NOTICE file
+      or file-level change markers).
+
+- [ ] 17. Persist more of the user's setup choices across browser restarts
+      Right now only the theme choice survives a browser restart (`ui/js/theme.js`, `localStorage`).
+      Scenario id + model are `sessionStorage` (`ui/js/setup.js`, `ui/js/chat.js`) — deliberately, to
+      carry state from Setup to Chat within one visit (see the "Navigation" decision at the top of the
+      UI-rework section) — but that also means they're gone every time the tab/browser closes, so the
+      user re-picks the same model and scenario every session. Decide what's actually worth carrying
+      forward in `localStorage` instead/in addition (last-used model is the obvious one; maybe last
+      custom scenario used, VAD-enabled toggle) and how it interacts with the existing sessionStorage
+      handoff — this needs its own small design decision before it's a codeable step, not just "switch
+      sessionStorage to localStorage" everywhere.
+      Verify: TBD once scope is decided.
