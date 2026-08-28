@@ -1,27 +1,22 @@
 import asyncio
 import aiohttp
-import io
 import json
 import logging
-import numpy as np
 import os
 import re
-import soundfile as sf
-import tempfile
 import time
 import traceback
 import uuid
-import wave
 
 from collections import deque
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from mutagen.oggopus import OggOpus
 
 # External endpoints
 SRT_ENDPOINT = os.getenv("SRT_ENDPOINT", "http://localhost:8001/inference")
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:8002/v1/chat/completions")
+LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434/v1/chat/completions")
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
 TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "http://localhost:8003/tts")
 
 logging.basicConfig(level=logging.DEBUG)
@@ -32,7 +27,14 @@ app.mount("/ui", StaticFiles(directory="ui"), name="ui")
 
 SYSTEM = {
     "role": "system",
-    "content": "You are a helpful AI voice assistant. We are interacting via voice so keep responses concise, no more than to a sentence or two unless the user specifies a longer response. You are running on an AMD workstation GPU, but no need to mention that unless specifically asked."
+    "content": os.getenv("SYSTEM_PROMPT",
+        "This is a live spoken German conversation practice session, transcribed by "
+        "Whisper and read aloud by Piper TTS. Reply in plain conversational German "
+        "prose only: no markdown, no asterisks, no bullet points, no headers, no "
+        "emoji. Keep replies natural and conversationally short unless more detail "
+        "is asked for. Correct mistakes briefly and conversationally, in German, "
+        "then keep the conversation going."
+    )
 }
 
 class ConversationManager:
@@ -246,12 +248,14 @@ async def process_and_stream(websocket: WebSocket, session_id, text):
 async def generate_llm_response(websocket, session_id, text):
     conversation_manager.update_latency_metric(session_id, "llm_start", time.time())
     try:
+        # conversation already ends with this turn's user message (added by the
+        # caller via add_user_message before process_and_stream was invoked)
         conversation = conversation_manager.get_conversation(session_id)
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.post(LLM_ENDPOINT, json={
-                "model": "gpt-3.5-turbo",
-                "messages": conversation + [{"role": "user", "content": text}],
+                "model": LLM_MODEL,
+                "messages": conversation,
                 "stream": True
             }) as response:
                 complete_text = ""

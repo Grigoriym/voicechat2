@@ -1,15 +1,10 @@
-import soundfile as sf
-import sys
-import tempfile
-import torch
+import os
 
 from abc import ABC, abstractmethod
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-from transformers.utils import is_flash_attn_2_available
 from typing import Union
 from urllib.parse import unquote
 
@@ -22,7 +17,9 @@ class TranscriptionEngine(ABC):
 
 class TransformersEngine(TranscriptionEngine):
     def __init__(self):
+        import torch
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+        from transformers.utils import is_flash_attn_2_available
 
         if torch.cuda.is_available():
             device = "cuda"
@@ -127,17 +124,39 @@ class SenseVoiceEngine(TranscriptionEngine):
         return text, []
 
 
-# For shorter sentences, the regular transformers pipeline seems to be faster than faster-whisper?
-'''
-try:
-    engine = FasterWhisperEngine()
-    logger.info("Using FasterWhisperEngine")
-except ImportError:
+class WhisperWebserviceEngine(TranscriptionEngine):
+    """Bridges to an already-running openai-whisper-asr-webservice container
+    instead of loading a model in-process. Zero torch/transformers dependency."""
+
+    def __init__(self):
+        import requests
+        self._requests = requests
+        self.url = os.getenv("WHISPER_WEBSERVICE_URL", "http://localhost:9001/asr")
+        self.language = os.getenv("WHISPER_LANGUAGE", "de")
+
+    def transcribe(self, file, audio_content, **kwargs):
+        params = {"output": "json"}
+        if self.language:
+            params["language"] = self.language
+        files = {"audio_file": ("audio.opus", audio_content, "audio/ogg")}
+        response = self._requests.post(self.url, params=params, files=files, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        text = (result.get("text") or "").strip()
+        return text, result.get("segments", [])
+
+
+# SRT_ENGINE: "webservice" (default, bridges to an existing whisper container,
+# no local model/torch needed), "transformers", or "faster-whisper"
+SRT_ENGINE = os.getenv("SRT_ENGINE", "webservice")
+
+if SRT_ENGINE == "transformers":
     engine = TransformersEngine()
-    logger.info("Using TransformersEngine")
-'''
-engine = TransformersEngine()
-logger.info("Using TransformersEngine")
+elif SRT_ENGINE == "faster-whisper":
+    engine = FasterWhisperEngine()
+else:
+    engine = WhisperWebserviceEngine()
+logger.info(f"Using {engine.__class__.__name__}")
 
 
 class TranscriptionResponse(BaseModel):
