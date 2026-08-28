@@ -5,7 +5,7 @@ import re
 import wave
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from pydantic import BaseModel
 
@@ -63,6 +63,17 @@ async def text_to_speech(request: TTSRequest):
 
     logger.info(f"TTS: {len(text)} chars -> {len(pcm)} PCM bytes")
     return Response(content=buf.getvalue(), media_type="audio/wav")
+
+
+@app.get("/health")
+async def health():
+    missing = [p for p in (PIPER_BIN, PIPER_MODEL) if not os.path.exists(p)]
+    if missing:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": f"missing: {', '.join(missing)}"},
+        )
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":

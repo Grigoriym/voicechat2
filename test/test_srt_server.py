@@ -45,3 +45,33 @@ def test_whisper_webservice_engine_missing_text_key_returns_empty_string(srt_ser
     text, _ = engine.transcribe(file=None, audio_content=b"fake")
 
     assert text == ""
+
+
+def test_health_ok_when_whisper_webservice_reachable(srt_server, monkeypatch):
+    monkeypatch.setattr(srt_server.engine, "url", "http://localhost:9001/asr")
+    monkeypatch.setattr(srt_server.engine._requests, "get", lambda *a, **k: None)
+
+    client = TestClient(srt_server.app)
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_health_error_when_whisper_webservice_unreachable(srt_server, monkeypatch):
+    class FakeRequestException(Exception):
+        pass
+
+    def raise_connection_error(*a, **k):
+        raise FakeRequestException("connection refused")
+
+    monkeypatch.setattr(
+        srt_server.engine._requests.exceptions, "RequestException", FakeRequestException
+    )
+    monkeypatch.setattr(srt_server.engine._requests, "get", raise_connection_error)
+
+    client = TestClient(srt_server.app)
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "error", "detail": "connection refused"}

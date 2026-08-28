@@ -1,6 +1,6 @@
 import os
 from abc import ABC, abstractmethod
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
@@ -231,6 +231,19 @@ async def inference(
     response = {"text": text}
 
     return JSONResponse(content=response, media_type="application/json")
+
+
+@app.get("/health")
+async def health():
+    if not isinstance(engine, WhisperWebserviceEngine):
+        return {"status": "ok"}
+
+    base = urlsplit(engine.url)._replace(path="/", query="", fragment="").geturl()
+    try:
+        engine._requests.get(base, timeout=5)
+    except engine._requests.exceptions.RequestException as e:
+        return JSONResponse(status_code=503, content={"status": "error", "detail": str(e)})
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":

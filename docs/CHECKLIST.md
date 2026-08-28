@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 2/12 — Current step: none
+Progress: 3/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -70,13 +70,28 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       (same pattern as step 1) — full markup/placement is step 7's job when the page is
       rewritten as the Setup screen.
 
-- [ ] 3. Health endpoints on the STT and TTS servers
+- [x] 3. Health endpoints on the STT and TTS servers
       `srt-server.py` `GET /health`: probes the configured engine's backing service (for
       `WhisperWebserviceEngine`, a short request to `WHISPER_WEBSERVICE_URL`'s base) and returns
       `{"status": "ok"|"error", "detail": ...}`. `tts-server-piper.py` `GET /health`: checks
       `PIPER_BIN` and `PIPER_MODEL` exist on disk.
       Verify: curl each with the backend up; then stop the whisper container / rename the piper
       binary and confirm each reports unhealthy instead of hanging or 500ing.
+      Note: `srt-server.py`'s health check only probes a backing service for
+      `WhisperWebserviceEngine` (the active/default engine) — `TransformersEngine` and
+      `FasterWhisperEngine` load models in-process with nothing external to check, so they
+      trivially report ok, matching the existing `isinstance(engine, ...)` branching style
+      already used in `/inference`. Verified live: rebuilt+restarted the `srt`/`tts` containers,
+      curled both `/health` with backends up (`{"status":"ok"}` from each); stopped the real
+      `whisper` container and curled `srt`'s `/health` again (503 with a connection-refused
+      detail, not a hang or 500), then restarted `whisper` and confirmed `/health` went back to
+      ok. For the piper-binary case, rather than renaming the real (read-only-mounted, shared
+      with `~/bin/deutsch`) binary, ran a disposable one-off container from the same image with
+      `PIPER_BIN` pointed at a nonexistent path on a spare port — confirmed 503 with a "missing:"
+      detail — then discarded it; the real `tts` container was untouched and still reports ok.
+      Also added pytest coverage (`test/test_srt_server.py`, `test/test_tts_piper.py`) for both
+      endpoints' ok/error paths; `ruff check`, `ruff format`, `mypy`, and `pytest -q` (22 passed)
+      all green.
 
 - [ ] 4. Aggregate health endpoint on the orchestrator
       `voicechat2.py` `GET /api/health`: calls Ollama's `/api/tags`, srt-server's `/health`, and
