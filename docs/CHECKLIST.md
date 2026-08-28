@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: 1/12 — Current step: none
+Progress: 2/12 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -52,10 +52,23 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
       (26/26). A real OS-theme-toggle visual check is still owed once step 7 actually uses the
       tokens and a browser session is available.
 
-- [ ] 2. Theme toggle control + persistence
+- [x] 2. Theme toggle control + persistence
       `ui/js/theme.js`: reads/writes `localStorage`, toggles `data-theme` on `<html>`, exposes a
       toggle button's markup + behavior for both pages to include.
       Verify: toggle in the UI, refresh the page, the choice persists.
+      Note: Chrome automation still isn't connected this session, so the manual browser pass
+      is deferred (same gap as step 1 — real OS-toggle/click verification still owed once a
+      browser session is available). Verified instead by: (1) serving checks — `theme.js`
+      returns 200 as `text/javascript` from the rebuilt `vc2` container, `index.html` includes
+      the `<script>` tag and a `#theme-toggle` button; (2) `node --check` for syntax; (3) running
+      the actual module logic under a minimal Node DOM/localStorage stub simulating a click and
+      a page refresh — confirmed no stored preference leaves `data-theme` unset (so
+      `prefers-color-scheme` still governs), a click sets `data-theme="dark"` and
+      `localStorage["vc2-theme"]="dark"` and flips the button label, and on a simulated reload
+      the stored value is re-applied to `<html>` before `DOMContentLoaded` (no flash) with the
+      button label matching. Wired the button + script into `index.html` temporarily for this
+      (same pattern as step 1) — full markup/placement is step 7's job when the page is
+      rewritten as the Setup screen.
 
 - [ ] 3. Health endpoints on the STT and TTS servers
       `srt-server.py` `GET /health`: probes the configured engine's backing service (for

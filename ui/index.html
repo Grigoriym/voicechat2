@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.7/dist/bundle.min.js"></script>
     <link rel="stylesheet" href="/ui/css/theme.css">
+    <script src="/ui/js/theme.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -213,6 +214,7 @@
 <body>
     <div class="container">
         <h1>voicechat2</h1>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
         <div class="lang-badge">🇩🇪 German — Whisper (STT) → Ollama (LLM) → Piper (TTS)</div>
 
         <div class="model-row">
