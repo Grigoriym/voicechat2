@@ -203,6 +203,9 @@ async def inference(
     # Read the audio file
     audio_content = await file.read()
 
+    if not audio_content:
+        return JSONResponse(content={"text": ""}, media_type="application/json")
+
     temperature += temperature_inc
     
     text, segments = engine.transcribe(
