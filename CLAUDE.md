@@ -113,6 +113,52 @@ Tests import the hyphenated active-path scripts (`voicechat2.py`, `srt-server.py
 `tts-server-piper.py`) directly via `importlib` — see `test/conftest.py`'s
 fixtures — since they're flat scripts, not a package.
 
+## Task tracking
+
+For a one-off fix or a small, well-scoped feature, just do it — no ceremony needed. For
+anything bigger (the UI work ahead, multi-step refactors), track it in `docs/CHECKLIST.md`:
+numbered, tickable steps, each self-contained with a `Verify:` line.
+
+When asked to "do step N": read the checklist, do *exactly* that step, run its `Verify:` line,
+tick the box, add a one-line `Note:` if anything deviated, and update the file's `Progress`
+header. Don't start a step whose dependencies aren't ticked, and don't expand scope beyond it.
+
+**Answering a question a not-yet-started step will ask is not the same as asking for that step
+to run.** If a preference or decision is stated for a later step, record it there for when that
+step runs — don't treat it as authorization to start the step now.
+
+A real problem found outside the current step's scope goes in `docs/revisit.md`, not fixed
+inline (that makes the diff unreviewable) and not just mentioned in chat.
+
+## Working agreements
+
+**Tradeoff:** these bias toward caution over speed. For trivial tasks, use judgment.
+
+- **Think before coding.** State assumptions explicitly; if multiple interpretations exist,
+  present them rather than picking silently. If something is unclear, stop and ask.
+- **Simplicity first.** Minimum code that solves the problem — no speculative abstractions, no
+  unrequested "flexibility", no error handling for scenarios that can't happen.
+- **Surgical changes.** Touch only what the task needs. Don't refactor or reformat adjacent
+  code. Remove imports/vars your own change orphaned; mention pre-existing dead code instead of
+  deleting it. Every changed line should trace to the request.
+- **Don't shape production code around tests.** If a test is flaky or can't observe behavior
+  deterministically, fix or simplify the *test* — don't add a seam or injectable parameter to
+  production code purely so a test can control it.
+- **Determinism over process.** If a check has one computable right answer (lint, type check, a
+  script), run the tool — don't follow a checklist by hand for something a tool already does
+  reliably.
+- **Changing a check means saying so.** Loosening a lint rule, skipping a hook (`--no-verify`),
+  disabling a test, or lowering a threshold is sometimes right — but say so explicitly in the
+  commit message and in the reply, not silently.
+- **Verification.** "Done" means the check actually ran and passed — `ruff check`, `mypy`,
+  `pytest -q`, or a manual pass in the browser for UI changes. A narrow pass proves your change
+  works, not that it broke nothing else; if a failure shows up alongside your change, A/B it
+  against a clean tree (`git stash -u`) before assuming you caused it or that you didn't.
+- **Friction goes in writing.** A guessed command that failed, a flag that needed different
+  quoting, a check that returned the wrong answer — add a one-line, past-tense entry to
+  `docs/frictions.md` rather than silently routing around it and saying nothing. The same
+  friction three times means fix it (a permission entry, a CLAUDE.md line), not a fourth line.
+
 ## Diverged from upstream
 
 Upstream assumes a CUDA/NVIDIA GPU, a locally-built llama.cpp + GGUF model,
@@ -150,6 +196,17 @@ to rot. **VAD mode still uses the old broken path and is not fixed** (it's
 labeled experimental in the UI on purpose); if VAD needs to work, give it
 the same MediaRecorder treatment rather than debugging the old library
 further.
+
+## Settled decisions
+
+Weighed and declined — don't re-propose these. Full rationale in the section named.
+
+| Not used | Instead | Why (see) |
+|---|---|---|
+| Docker bridge networking | `network_mode: host` on all three services | Ollama binds `127.0.0.1:11434`; a bridge container can't reach that even via `host.docker.internal` — "Running" |
+| `symbl-opus-encdec` for push-to-talk | Browser-native `MediaRecorder` | Upstream CDN dependency is broken/unmaintained (403s), caused silent 0-byte recordings — "Client-side recording" |
+| llama.cpp + local GGUF model | Ollama's OpenAI-compatible endpoint | Ollama was already running on this machine; no local GGUF build to maintain — "Diverged from upstream" |
+| HF Transformers Whisper in-process | `WhisperWebserviceEngine` bridging to the already-running Whisper container | Avoids loading a second Whisper model into memory — "Architecture" |
 
 ## Gotchas
 
