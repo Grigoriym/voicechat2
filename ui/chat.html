@@ -11,7 +11,7 @@
 </head>
 <body>
     <div class="page">
-        <div class="page-inner">
+        <div class="page-inner chat-page">
             <div class="page-header">
                 <h1>voicechat2</h1>
                 <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
@@ -73,7 +73,11 @@
             </details>
 
             <div id="conversationLog" class="card"></div>
-            <div id="logArea" class="card"></div>
+
+            <details id="debugLog" class="card">
+                <summary>Debug: log</summary>
+                <div id="logArea"></div>
+            </details>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/symbl-opus-encdec@0.1.2/src/recorder.min.js"></script>

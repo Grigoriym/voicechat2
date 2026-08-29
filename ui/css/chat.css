@@ -2,6 +2,16 @@
    badge, transcript, latency table, and debug log. Shared tokens/base
    styles come from theme.css. */
 
+.chat-page {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.chat-page > * {
+    flex-shrink: 0;
+}
+
 .chat-subheader {
     display: flex;
     align-items: center;
@@ -155,7 +165,8 @@
 }
 
 #conversationLog {
-    height: 300px;
+    flex: 1 1 auto;
+    min-height: 150px;
     overflow-y: auto;
 }
 
@@ -181,8 +192,18 @@
     font-style: italic;
 }
 
+#debugLog summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: var(--color-text-muted);
+}
+
+#debugLog[open] summary {
+    margin-bottom: var(--space-3);
+}
+
 #logArea {
-    height: 300px;
+    max-height: 300px;
     overflow-y: auto;
     font-family: var(--font-mono);
     font-size: 0.8rem;
