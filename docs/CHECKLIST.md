@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 2/3 — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done) — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -442,7 +442,7 @@ design/scope decision before work starts, per the "Think before coding" working 
       format`/whitespace-strip tooling — cosmetic, not a substantive change — so they're out of scope
       for a change-notice.) Concrete follow-up scoped as step 18 below.
 
-- [ ] 17. Persist more of the user's setup choices across browser restarts
+- [x] 17. Persist more of the user's setup choices across browser restarts
       Right now only the theme choice survives a browser restart (`ui/js/theme.js`, `localStorage`).
       Scenario id + model are `sessionStorage` (`ui/js/setup.js`, `ui/js/chat.js`) — deliberately, to
       carry state from Setup to Chat within one visit (see the "Navigation" decision at the top of the
@@ -453,6 +453,26 @@ design/scope decision before work starts, per the "Think before coding" working 
       handoff — this needs its own small design decision before it's a codeable step, not just "switch
       sessionStorage to localStorage" everywhere.
       Verify: TBD once scope is decided.
+      Note: scoped to last-used scenario id + model only — mirrored into `localStorage` under the same
+      `SCENARIO_STORAGE_KEY`/`MODEL_STORAGE_KEY` constants, written alongside the existing
+      `sessionStorage` writes on Start. `sessionStorage` stays the Setup→Chat handoff, unchanged;
+      `localStorage` is read as a fallback (`sessionStorage.getItem(key) ?? localStorage.getItem(key)`)
+      only for pre-selecting Setup's own radio/dropdown on a fresh page load. Left the VAD toggle out of
+      scope — it's the known-broken experimental path (see "Client-side recording" above), not worth
+      persisting. Also fixed a pre-existing bug this surfaced: `loadModels()` unconditionally overwrote
+      `selectedModel` with the server's bare default after every fetch, silently discarding whatever
+      had been restored (from either storage) — scenario restoration already guarded against this via
+      `loadScenarios()`'s existing `!scenarios.some(...)` check, model restoration had no equivalent.
+      Now mirrors that pattern: keeps the restored model if it's still in the fetched list, falls back
+      to the server default otherwise. Verified manually via Chrome automation against the rebuilt `vc2`
+      container: cleared both storages and confirmed defaults load; picked a non-default scenario
+      (`restaurant`) + model (`mistral:7b`) and hit Start, confirmed both storages held the new values on
+      `chat.html`; cleared only `sessionStorage` (simulating a restart) and reloaded Setup, confirmed
+      both pre-selected from `localStorage` alone; set `localStorage`'s model to a nonexistent name and
+      reloaded, confirmed a clean fallback to the server default with the Start button still enabled, no
+      broken dropdown state. `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (47 passed,
+      unchanged — no Python touched) all still green (no JS test harness exists, same as prior UI
+      steps). This closes out the last item in Backlog (3/3).
 
 - [x] 18. Add Apache-2.0 §4(b) change notices to the three rewritten files
       Follow-up from step 16: `voicechat2.py`, `srt-server.py`, and `tts-server-piper.py` are

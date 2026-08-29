@@ -2,7 +2,10 @@
 // handles scenario create/clone/edit/delete, runs the health checks
 // (including a getUserMedia mic-permission probe with a live level meter),
 // and on Start stores the chosen scenario id + model in sessionStorage
-// before navigating to chat.html.
+// before navigating to chat.html. Also mirrored into localStorage, so the
+// last-used scenario/model pre-select themselves on a fresh visit (e.g.
+// after a browser restart, when sessionStorage is empty) instead of falling
+// back to the server's bare defaults every time.
 
 const SCENARIO_STORAGE_KEY = "vc2-scenario";
 const MODEL_STORAGE_KEY = "vc2-model";
@@ -200,14 +203,16 @@ async function loadModels() {
         const resp = await fetch("/api/models");
         const data = await resp.json();
         select.innerHTML = "";
+        if (!selectedModel || !data.models.includes(selectedModel)) {
+            selectedModel = data.default;
+        }
         for (const name of data.models) {
             const opt = document.createElement("option");
             opt.value = name;
             opt.textContent = name;
-            if (name === data.default) opt.selected = true;
+            if (name === selectedModel) opt.selected = true;
             select.appendChild(opt);
         }
-        selectedModel = data.default;
         document.getElementById("modelStatus").textContent = `active: ${data.default}`;
     } catch (error) {
         select.innerHTML = '<option value="">(model list unavailable)</option>';
@@ -333,8 +338,8 @@ async function initMic() {
 // ---- Init ----
 
 document.addEventListener("DOMContentLoaded", () => {
-    selectedScenarioId = sessionStorage.getItem(SCENARIO_STORAGE_KEY);
-    selectedModel = sessionStorage.getItem(MODEL_STORAGE_KEY);
+    selectedScenarioId = sessionStorage.getItem(SCENARIO_STORAGE_KEY) ?? localStorage.getItem(SCENARIO_STORAGE_KEY);
+    selectedModel = sessionStorage.getItem(MODEL_STORAGE_KEY) ?? localStorage.getItem(MODEL_STORAGE_KEY);
 
     loadScenarios();
     loadModels();
@@ -354,6 +359,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("startBtn").addEventListener("click", () => {
         sessionStorage.setItem(SCENARIO_STORAGE_KEY, selectedScenarioId);
         sessionStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
+        localStorage.setItem(SCENARIO_STORAGE_KEY, selectedScenarioId);
+        localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
         window.location.href = "chat.html";
     });
 
