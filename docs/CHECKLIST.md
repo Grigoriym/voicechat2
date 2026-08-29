@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 1/3 — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 2/3 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -454,7 +454,7 @@ design/scope decision before work starts, per the "Think before coding" working 
       sessionStorage to localStorage" everywhere.
       Verify: TBD once scope is decided.
 
-- [ ] 18. Add Apache-2.0 §4(b) change notices to the three rewritten files
+- [x] 18. Add Apache-2.0 §4(b) change notices to the three rewritten files
       Follow-up from step 16: `voicechat2.py`, `srt-server.py`, and `tts-server-piper.py` are
       substantively rewritten from their upstream equivalents but carry no in-file notice that they
       were changed, which Apache-2.0 §4(b) requires for a modified redistribution. Add a short comment
@@ -465,3 +465,11 @@ design/scope decision before work starts, per the "Think before coding" working 
       duplicate it inline.
       Verify: `ruff check`, `ruff format --check`, `mypy`, `pytest -q` all still pass (comment-only
       change); manually confirm each notice names the correct upstream source file it diverged from.
+      Note: added a two-line `# Modified from upstream lhl/voicechat2's <file> — see this repo's
+      CLAUDE.md "Diverged from upstream" section for what changed and why.` comment above the imports
+      in `voicechat2.py` and `srt-server.py`, and the same above `tts-server-piper.py`'s imports (naming
+      `test/piper-server.py`, since that's the file it was rebuilt from, not upstream's own
+      `tts-server.py`) — kept separate from that file's existing rationale comment rather than merging
+      the two, since one is the license-required "this changed" notice and the other is a why. `ruff
+      check`, `ruff format --check`, `mypy`, `pytest -q` (47 passed) all green. This closes out the
+      Apache-2.0 compliance follow-up (backlog 2/3).

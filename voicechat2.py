@@ -1,3 +1,6 @@
+# Modified from upstream lhl/voicechat2's voicechat2.py — see this repo's
+# CLAUDE.md "Diverged from upstream" section for what changed and why.
+
 import asyncio
 import json
 import logging

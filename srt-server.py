@@ -1,3 +1,6 @@
+# Modified from upstream lhl/voicechat2's srt-server.py — see this repo's
+# CLAUDE.md "Diverged from upstream" section for what changed and why.
+
 import os
 from abc import ABC, abstractmethod
 from urllib.parse import unquote, urlsplit
