@@ -20,6 +20,8 @@ let formEditingId = null;
 let micStream = null;
 let micAudioContext = null;
 let micRafId = null;
+let micAnalyser = null;
+let micAnalyserData = null;
 
 function slugify(text) {
     return text.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "") || "scenario";
@@ -224,6 +226,8 @@ async function loadModels() {
         selectedModel = select.value || null;
         updateStartButton();
     });
+    select.addEventListener("focus", pauseMicMeter);
+    select.addEventListener("blur", resumeMicMeter);
 }
 
 function initUnloadModelButton() {
@@ -281,10 +285,9 @@ async function runHealthChecks() {
 }
 
 function stopMic() {
-    if (micRafId !== null) {
-        cancelAnimationFrame(micRafId);
-        micRafId = null;
-    }
+    pauseMicMeter();
+    micAnalyser = null;
+    micAnalyserData = null;
     if (micAudioContext) {
         micAudioContext.close();
         micAudioContext = null;
@@ -295,31 +298,49 @@ function stopMic() {
     }
 }
 
+// Runs every animation frame while active, which continuously repaints the
+// meter bar. A native <select> popup (the model dropdown) shares the same
+// compositor and gets dismissed by that repaint mid-interaction — the user
+// sees it flash open and immediately pick whatever option was under the
+// cursor. pauseMicMeter()/resumeMicMeter() bracket the model select's
+// focus so the meter stops animating for as long as that dropdown is open.
+function meterTick() {
+    const fill = document.getElementById("micMeterFill");
+    micAnalyser.getByteTimeDomainData(micAnalyserData);
+    let peak = 0;
+    for (const sample of micAnalyserData) {
+        peak = Math.max(peak, Math.abs(sample - 128) / 128);
+    }
+    const pct = Math.min(100, Math.round(peak * 100));
+    fill.style.width = `${pct}%`;
+    fill.classList.toggle("loud", pct >= 70 && pct < 95);
+    fill.classList.toggle("clip", pct >= 95);
+    micRafId = requestAnimationFrame(meterTick);
+}
+
+function pauseMicMeter() {
+    if (micRafId !== null) {
+        cancelAnimationFrame(micRafId);
+        micRafId = null;
+    }
+}
+
+function resumeMicMeter() {
+    if (micAnalyser && micRafId === null) {
+        meterTick();
+    }
+}
+
 function startMicMeter(stream) {
     micAudioContext = new AudioContext();
     const source = micAudioContext.createMediaStreamSource(stream);
-    const analyser = micAudioContext.createAnalyser();
-    analyser.fftSize = 2048;
-    source.connect(analyser);
+    micAnalyser = micAudioContext.createAnalyser();
+    micAnalyser.fftSize = 2048;
+    source.connect(micAnalyser);
+    micAnalyserData = new Uint8Array(micAnalyser.fftSize);
 
-    const data = new Uint8Array(analyser.fftSize);
-    const fill = document.getElementById("micMeterFill");
-    const hint = document.getElementById("micMeterHint");
-    hint.textContent = "Speak to test your microphone.";
-
-    function tick() {
-        analyser.getByteTimeDomainData(data);
-        let peak = 0;
-        for (const sample of data) {
-            peak = Math.max(peak, Math.abs(sample - 128) / 128);
-        }
-        const pct = Math.min(100, Math.round(peak * 100));
-        fill.style.width = `${pct}%`;
-        fill.classList.toggle("loud", pct >= 70 && pct < 95);
-        fill.classList.toggle("clip", pct >= 95);
-        micRafId = requestAnimationFrame(tick);
-    }
-    tick();
+    document.getElementById("micMeterHint").textContent = "Speak to test your microphone.";
+    resumeMicMeter();
 }
 
 async function initMic() {

@@ -237,3 +237,12 @@ Weighed and declined — don't re-propose these. Full rationale in the section n
   (never called from anywhere in that file — `test/voicechat2-webrtc.py` has
   its own separate copies, unaffected). If you're looking for either, check
   git history.
+- The Setup screen's mic-level meter (`ui/js/setup.js`) drives a bar via a
+  continuous `requestAnimationFrame` loop the whole time the mic health check
+  is green. That loop mutating layout every frame was dismissing the native
+  `<select>` popup (the model dropdown) mid-interaction — it'd flash open and
+  immediately pick whatever option was under the cursor. Fixed by pausing the
+  loop (`pauseMicMeter()`) on the select's `focus` and resuming
+  (`resumeMicMeter()`) on `blur`. If a future `<select>` (or similarly
+  OS/compositor-rendered popup) gets added anywhere the meter loop is running,
+  it needs the same focus/blur bracketing.
