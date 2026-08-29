@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 0/2 — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 1/3 — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -415,7 +415,7 @@ Small, independent follow-ups raised 2026-08-28 — no shared design decisions, 
 each other or on anything above. Pick either up whenever; each still needs its own up-front
 design/scope decision before work starts, per the "Think before coding" working agreement.
 
-- [ ] 16. Apache-2.0 compliance check (this repo is a fork)
+- [x] 16. Apache-2.0 compliance check (this repo is a fork)
       Upstream is [lhl/voicechat2](https://github.com/lhl/voicechat2), Apache-2.0 licensed; `LICENSE`
       here still carries the upstream Apache-2.0 text verbatim (confirmed present, not yet re-checked
       for drift). Apache-2.0 §4 requires, for a modified redistribution: (a) give any other recipients a
@@ -428,6 +428,19 @@ design/scope decision before work starts, per the "Think before coding" working 
       Verify: no code changes expected — this is a compliance read. Conclude with either "no action
       needed" (with the §4(a)-(d) reasoning) or a concrete, scoped follow-up (e.g. adding a NOTICE file
       or file-level change markers).
+      Note: checked against upstream's current `main` (`lhl/voicechat2`, fetched via `gh api`/raw.
+      githubusercontent.com). (a) satisfied — `diff` against upstream's `LICENSE` is byte-identical, no
+      drift. (c) and (d) are moot — grepped upstream's `voicechat2.py`/`srt-server.py`/`tts-server.py`/
+      `README.md` for "copyright"/"©", no matches, and upstream ships no `NOTICE` file (not in its repo
+      root listing), so there's nothing to retain or forward beyond `LICENSE` itself. (b) is **not**
+      satisfied: the three files that are substantively rewritten from upstream equivalents —
+      `voicechat2.py`, `srt-server.py`, and `tts-server-piper.py` (rebuilt from upstream's
+      `test/piper-server.py`, per this file's "Diverged from upstream" section) — carry no in-file
+      notice that they were changed; the CLAUDE.md/README explanation lives at the project level, not in
+      the files themselves, which is what §4(b) asks for. (Upstream's five untouched `test/*.py`
+      reference files and `README.md` also diff from upstream, but only via this repo's own `ruff
+      format`/whitespace-strip tooling — cosmetic, not a substantive change — so they're out of scope
+      for a change-notice.) Concrete follow-up scoped as step 18 below.
 
 - [ ] 17. Persist more of the user's setup choices across browser restarts
       Right now only the theme choice survives a browser restart (`ui/js/theme.js`, `localStorage`).
@@ -440,3 +453,15 @@ design/scope decision before work starts, per the "Think before coding" working 
       handoff — this needs its own small design decision before it's a codeable step, not just "switch
       sessionStorage to localStorage" everywhere.
       Verify: TBD once scope is decided.
+
+- [ ] 18. Add Apache-2.0 §4(b) change notices to the three rewritten files
+      Follow-up from step 16: `voicechat2.py`, `srt-server.py`, and `tts-server-piper.py` are
+      substantively rewritten from their upstream equivalents but carry no in-file notice that they
+      were changed, which Apache-2.0 §4(b) requires for a modified redistribution. Add a short comment
+      near the top of each of the three files stating it's modified from the corresponding upstream
+      `lhl/voicechat2` file (name the upstream file, since `tts-server-piper.py` maps to upstream's
+      `test/piper-server.py`, not `tts-server.py`) — one or two lines, not a changelog; the detailed
+      "what changed and why" already lives in this file's "Diverged from upstream" section, no need to
+      duplicate it inline.
+      Verify: `ruff check`, `ruff format --check`, `mypy`, `pytest -q` all still pass (comment-only
+      change); manually confirm each notice names the correct upstream source file it diverged from.
