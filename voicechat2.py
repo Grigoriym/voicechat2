@@ -366,7 +366,13 @@ async def check_grammar(text: str) -> dict | None:
     if reply == "OK":
         return {"correct": True, "corrected": None}
     if reply.startswith("CORRECTED:"):
-        return {"correct": False, "corrected": reply[len("CORRECTED:") :].strip()}
+        corrected = reply[len("CORRECTED:") :].strip()
+        if corrected == text.strip():
+            # Model sometimes echoes the input verbatim under "CORRECTED:"
+            # instead of replying "OK" — treat that as correct so the UI
+            # doesn't show a no-op "correction" that just repeats the text.
+            return {"correct": True, "corrected": None}
+        return {"correct": False, "corrected": corrected}
     logger.warning(f"Unparseable grammar-check reply: {reply!r}")
     return None
 

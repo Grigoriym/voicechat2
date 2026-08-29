@@ -404,6 +404,20 @@ def test_check_grammar_returns_correction_for_corrected_reply(voicechat2, monkey
     assert result == {"correct": False, "corrected": "Was möchtest du heute machen?"}
 
 
+def test_check_grammar_treats_verbatim_echo_as_correct(voicechat2, monkeypatch):
+    text = "Hallo! Gerne können wir darüber sprechen."
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": f"CORRECTED: {text}"}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.check_grammar(text))
+
+    assert result == {"correct": True, "corrected": None}
+
+
 def test_check_grammar_returns_none_for_unparseable_reply(voicechat2, monkeypatch):
     responses = {
         ("POST", "http://localhost:11434/v1/chat/completions"): {
