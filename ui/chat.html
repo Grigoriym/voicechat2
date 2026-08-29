@@ -13,15 +13,13 @@
     <div class="page">
         <div class="page-inner chat-page">
             <div class="page-header">
+                <a class="setup-link" href="/">&larr; Setup</a>
                 <h1>voicechat2</h1>
+                <span id="activeContext" class="status-hint">loading…</span>
                 <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
             </div>
-            <div class="chat-subheader">
-                <a class="setup-link" href="/">&larr; Setup</a>
-                <span id="activeContext" class="status-hint">loading…</span>
-            </div>
 
-            <div class="card">
+            <div class="card controls-card">
                 <div class="meter-wrap">
                     <div class="meter-label">Microphone level</div>
                     <div class="meter-track"><div id="micMeterFill" class="meter-fill"></div></div>
@@ -31,9 +29,11 @@
                 <button id="recordButton" class="record-btn" type="button">🎤 Hold to talk</button>
                 <p class="hint-text">or hold spacebar</p>
 
-                <div id="status" class="status-badge status-ready">Ready</div>
-                <div id="lastCapture"></div>
-                <div id="timer">00:00:000</div>
+                <div class="status-row">
+                    <div id="status" class="status-badge status-ready">Ready</div>
+                    <div id="lastCapture"></div>
+                    <div id="timer">00:00:000</div>
+                </div>
 
                 <button id="vadToggle" class="btn-secondary" type="button">Enable Voice Auto Detection (experimental)</button>
             </div>
