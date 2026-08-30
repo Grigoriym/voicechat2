@@ -54,63 +54,14 @@ SCENARIOS = {
         "label": "General / free talk",
         "prompt": "",
     },
-    "small_talk": {
-        "label": "Small talk",
+    "ai_leads": {
+        "label": "AI opens & drives",
         "prompt": (
-            "Scenario: you've just met the user at a casual social event. Make "
-            "small talk with them — weather, weekend plans, hobbies, how their "
-            "day is going. Keep it light and casual."
-        ),
-    },
-    "doctor": {
-        "label": "Doctor's appointment",
-        "prompt": (
-            "Scenario: you are a doctor (Ärztin/Arzt) and the user is a patient "
-            "who has come in with a complaint. Ask about their symptoms, how "
-            "long they've had them, and give simple advice, the way a German "
-            "doctor would during a Sprechstunde."
-        ),
-    },
-    "restaurant": {
-        "label": "Restaurant",
-        "prompt": (
-            "Scenario: you are a waiter (Kellner/Kellnerin) at a German "
-            "restaurant. Greet the user, describe menu items if asked, take "
-            "their order, and handle the usual back-and-forth of a restaurant "
-            "visit."
-        ),
-    },
-    "shopping": {
-        "label": "Shopping",
-        "prompt": (
-            "Scenario: you are a shop assistant (Verkäufer/Verkäuferin) in a "
-            "German store. Help the user find what they're looking for, "
-            "answer questions about sizes and prices, and handle a typical "
-            "shopping interaction."
-        ),
-    },
-    "job_interview": {
-        "label": "Job interview",
-        "prompt": (
-            "Scenario: you are interviewing the user for a job, in German. "
-            "Ask about their background, experience, and motivation, one "
-            "question at a time, the way a real Vorstellungsgespräch would go."
-        ),
-    },
-    "directions": {
-        "label": "Asking for directions",
-        "prompt": (
-            "Scenario: the user is a tourist asking you for directions in a "
-            "German city. Answer as a helpful local, giving directions and "
-            "simple landmarks."
-        ),
-    },
-    "hotel": {
-        "label": "Hotel check-in",
-        "prompt": (
-            "Scenario: you work the front desk (Rezeption) of a German "
-            "hotel. Handle the user's check-in, answer questions about the "
-            "room, breakfast, and Wi-Fi, and the usual hotel small talk."
+            "Scenario: start the conversation yourself with a natural opening "
+            "line — don't wait for the user to speak first. Keep it moving "
+            "throughout: ask follow-up questions, and whenever a topic runs "
+            "dry, introduce a new related one so the user always has "
+            "something easy to respond to."
         ),
     },
 }
