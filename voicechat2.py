@@ -27,7 +27,7 @@ TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "http://localhost:8003/tts")
 # Grammar-check pass: a separate, fixed model (independent of whichever model
 # is driving the conversation) used to silently score each turn's German and
 # offer a correction. See docs/CHECKLIST.md "Grammar-check pass".
-GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "cas/discolm-mfto-german:latest")
+GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "gemma2:9b")
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -304,6 +304,7 @@ async def check_grammar(text: str) -> dict | None:
                         {"role": "system", "content": GRAMMAR_CHECK_SYSTEM_PROMPT},
                         {"role": "user", "content": text},
                     ],
+                    "temperature": 0,
                     "stream": False,
                 },
             ) as response,

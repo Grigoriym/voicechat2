@@ -326,6 +326,15 @@ Decided up front, don't re-litigate:
   for a correct AI-style sentence, a broken AI-style sentence, and a broken user-style sentence (all
   three via direct `curl` to the Ollama endpoint).
 
+Update (2026-08-30): `cas/discolm-mfto-german:latest` turned out unreliable in practice — missed a
+real error ("nach eine gute idee", "es ist so nicht") consistently even at `temperature: 0`, and the
+grammar-check request wasn't pinning temperature at all, so the same input could get `OK` or a
+(sometimes malformed) `CORRECTED:` reply on different runs. Fixed by pinning `temperature: 0` in
+`check_grammar()`'s request, and switching the default `GRAMMAR_CHECK_MODEL` to `gemma2:9b`, which
+caught the same error cleanly at `temperature: 0` — chosen over `llama3.1:8b` specifically to keep
+the checker independent of the conversation model (see "both user and AI messages get checked" above:
+`llama3.1:8b` grading its own replies would defeat that).
+
 ## Grammar-check steps
 
 - [x] 13. `check_grammar()` helper + config (`voicechat2.py`)
