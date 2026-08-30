@@ -2,20 +2,22 @@
 // handles scenario create/clone/edit/delete, runs the health checks
 // (including a getUserMedia mic-permission probe with a live level meter),
 // and on Start stores the chosen scenario id + conversation model + grammar
-// corrector model in sessionStorage before navigating to chat.html. Also
-// mirrored into localStorage, so the last-used choices pre-select
-// themselves on a fresh visit (e.g. after a browser restart, when
-// sessionStorage is empty) instead of falling back to the server's bare
-// defaults every time.
+// corrector model + explainer model in sessionStorage before navigating to
+// chat.html. Also mirrored into localStorage, so the last-used choices
+// pre-select themselves on a fresh visit (e.g. after a browser restart,
+// when sessionStorage is empty) instead of falling back to the server's
+// bare defaults every time.
 
 const SCENARIO_STORAGE_KEY = "vc2-scenario";
 const MODEL_STORAGE_KEY = "vc2-model";
 const GRAMMAR_MODEL_STORAGE_KEY = "vc2-grammar-model";
+const EXPLAINER_MODEL_STORAGE_KEY = "vc2-explainer-model";
 
 let scenarios = [];
 let selectedScenarioId = null;
 let selectedModel = null;
 let selectedGrammarModel = null;
+let selectedExplainerModel = null;
 
 let formMode = null; // "create" | "clone" | "edit" | null
 let formEditingId = null;
@@ -34,7 +36,8 @@ function updateStartButton() {
     document.getElementById("startBtn").disabled = !(
         selectedScenarioId &&
         selectedModel &&
-        selectedGrammarModel
+        selectedGrammarModel &&
+        selectedExplainerModel
     );
 }
 
@@ -206,65 +209,78 @@ async function deleteScenario(scenario) {
 
 // ---- Model ----
 
-// Populates both the conversation-model and grammar-corrector-model
-// dropdowns from the same /api/models list. Each option's note (past
-// testing findings, e.g. "weak as grammar corrector") is appended to its
-// label so it's visible without hovering, since it's meant to jog memory
-// while picking, not just be discoverable on demand.
+// Populates the conversation-model, grammar-corrector-model, and
+// explainer-model dropdowns from the same /api/models list. Each option's
+// note (past testing findings, e.g. "weak as grammar corrector") is
+// appended to its label so it's visible without hovering, since it's meant
+// to jog memory while picking, not just be discoverable on demand.
 async function loadModels() {
-    const select = document.getElementById("modelSelect");
-    const grammarSelect = document.getElementById("grammarModelSelect");
+    const pickers = [
+        {
+            select: document.getElementById("modelSelect"),
+            statusId: "modelStatus",
+            defaultKey: "default",
+            get: () => selectedModel,
+            set: (v) => {
+                selectedModel = v;
+            },
+        },
+        {
+            select: document.getElementById("grammarModelSelect"),
+            statusId: "grammarModelStatus",
+            defaultKey: "grammar_default",
+            get: () => selectedGrammarModel,
+            set: (v) => {
+                selectedGrammarModel = v;
+            },
+        },
+        {
+            select: document.getElementById("explainerModelSelect"),
+            statusId: "explainerModelStatus",
+            defaultKey: "explainer_default",
+            get: () => selectedExplainerModel,
+            set: (v) => {
+                selectedExplainerModel = v;
+            },
+        },
+    ];
+
     try {
         const resp = await fetch("/api/models");
         const data = await resp.json();
-        select.innerHTML = "";
-        grammarSelect.innerHTML = "";
         const names = data.models.map((m) => m.name);
-        if (!selectedModel || !names.includes(selectedModel)) {
-            selectedModel = data.default;
-        }
-        if (!selectedGrammarModel || !names.includes(selectedGrammarModel)) {
-            selectedGrammarModel = data.grammar_default;
-        }
-        for (const model of data.models) {
-            const label = model.note ? `${model.name} — ${model.note}` : model.name;
 
-            const opt = document.createElement("option");
-            opt.value = model.name;
-            opt.textContent = label;
-            if (model.name === selectedModel) opt.selected = true;
-            select.appendChild(opt);
-
-            const grammarOpt = document.createElement("option");
-            grammarOpt.value = model.name;
-            grammarOpt.textContent = label;
-            if (model.name === selectedGrammarModel) grammarOpt.selected = true;
-            grammarSelect.appendChild(grammarOpt);
+        for (const picker of pickers) {
+            if (!picker.get() || !names.includes(picker.get())) {
+                picker.set(data[picker.defaultKey]);
+            }
+            picker.select.innerHTML = "";
+            for (const model of data.models) {
+                const opt = document.createElement("option");
+                opt.value = model.name;
+                opt.textContent = model.note ? `${model.name} — ${model.note}` : model.name;
+                if (model.name === picker.get()) opt.selected = true;
+                picker.select.appendChild(opt);
+            }
+            document.getElementById(picker.statusId).textContent =
+                `active: ${data[picker.defaultKey]}`;
         }
-        document.getElementById("modelStatus").textContent = `active: ${data.default}`;
-        document.getElementById("grammarModelStatus").textContent =
-            `active: ${data.grammar_default}`;
     } catch (error) {
-        select.innerHTML = '<option value="">(model list unavailable)</option>';
-        grammarSelect.innerHTML = '<option value="">(model list unavailable)</option>';
-        document.getElementById("modelStatus").textContent = `Error: ${error.message}`;
-        document.getElementById("grammarModelStatus").textContent = `Error: ${error.message}`;
+        for (const picker of pickers) {
+            picker.select.innerHTML = '<option value="">(model list unavailable)</option>';
+            document.getElementById(picker.statusId).textContent = `Error: ${error.message}`;
+        }
     }
     updateStartButton();
 
-    select.addEventListener("change", () => {
-        selectedModel = select.value || null;
-        updateStartButton();
-    });
-    select.addEventListener("focus", pauseMicMeter);
-    select.addEventListener("blur", resumeMicMeter);
-
-    grammarSelect.addEventListener("change", () => {
-        selectedGrammarModel = grammarSelect.value || null;
-        updateStartButton();
-    });
-    grammarSelect.addEventListener("focus", pauseMicMeter);
-    grammarSelect.addEventListener("blur", resumeMicMeter);
+    for (const picker of pickers) {
+        picker.select.addEventListener("change", () => {
+            picker.set(picker.select.value || null);
+            updateStartButton();
+        });
+        picker.select.addEventListener("focus", pauseMicMeter);
+        picker.select.addEventListener("blur", resumeMicMeter);
+    }
 }
 
 function initUnloadModelButton() {
@@ -400,6 +416,9 @@ document.addEventListener("DOMContentLoaded", () => {
     selectedModel = sessionStorage.getItem(MODEL_STORAGE_KEY) ?? localStorage.getItem(MODEL_STORAGE_KEY);
     selectedGrammarModel =
         sessionStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY) ?? localStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY);
+    selectedExplainerModel =
+        sessionStorage.getItem(EXPLAINER_MODEL_STORAGE_KEY) ??
+        localStorage.getItem(EXPLAINER_MODEL_STORAGE_KEY);
 
     loadScenarios();
     loadModels();
@@ -420,9 +439,11 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.setItem(SCENARIO_STORAGE_KEY, selectedScenarioId);
         sessionStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
         sessionStorage.setItem(GRAMMAR_MODEL_STORAGE_KEY, selectedGrammarModel);
+        sessionStorage.setItem(EXPLAINER_MODEL_STORAGE_KEY, selectedExplainerModel);
         localStorage.setItem(SCENARIO_STORAGE_KEY, selectedScenarioId);
         localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
         localStorage.setItem(GRAMMAR_MODEL_STORAGE_KEY, selectedGrammarModel);
+        localStorage.setItem(EXPLAINER_MODEL_STORAGE_KEY, selectedExplainerModel);
         window.location.href = "chat.html";
     });
 

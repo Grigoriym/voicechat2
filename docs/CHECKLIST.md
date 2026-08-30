@@ -512,3 +512,24 @@ design/scope decision before work starts, per the "Think before coding" working 
       the two, since one is the license-required "this changed" notice and the other is a why. `ruff
       check`, `ruff format --check`, `mypy`, `pytest -q` (47 passed) all green. This closes out the
       Apache-2.0 compliance follow-up (backlog 2/3).
+
+## Explain-on-demand (2026-08-30)
+
+A third Setup-screen picker, "Explainer model", plus an "Explain" button on every chat bubble (both
+user and AI turns) that POSTs the turn's text to a new `POST /api/explain` endpoint and shows the
+English translation + brief notes inline, replacing the button. Unlike grammar-check this is
+user-triggered, not automatic, and unlike the corrector model it needed no session/websocket state at
+all — the UI just includes its chosen `explainerModelId` (from sessionStorage, same pattern as the
+other two pickers) directly in each request body.
+
+`explain_text()` asks for a strict "Translation: .../Notes: ..." two-line reply (`EXPLAIN_SYSTEM_PROMPT`),
+but testing found `llama3.1:8b` and `gemma2:9b` both ignore that format and just reply with prose (still
+useful content, just unlabeled), while `mistral:7b` and `qwen2.5-coder:14b` follow it cleanly — recorded
+in `MODEL_NOTES`. Rather than failing on the ignored-format case, `explain_text()` falls back to
+treating the first line as the translation and the rest as notes (stripping a stray `Notes:` prefix and
+normalizing a bare "none" to no notes) — a still-useful reply beats a hard error for an on-demand,
+user-initiated feature like this. `/api/explain` returns 502 only when the model truly gave nothing
+back (empty reply) or the request itself failed.
+`ruff check`, `ruff format --check`, `mypy`, `pytest -q` (59 passed) all green; manually verified via
+Chrome automation against the rebuilt `vc2` container — both a simulated user bubble and a simulated
+completed AI bubble showed a working Explain button that fetched and rendered a translation + notes.

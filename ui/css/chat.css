@@ -222,6 +222,42 @@
     font-style: italic;
 }
 
+.explain-btn {
+    margin-left: var(--space-1);
+    font-size: 0.7rem;
+    padding: 0 0.4rem;
+    line-height: 1.5;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.explain-btn:hover:not(:disabled) {
+    color: var(--color-text);
+}
+
+.explain-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.explain-note {
+    margin: 2px 0 0 var(--space-4);
+    font-size: 0.8rem;
+    color: var(--color-text-faint);
+}
+
+.explain-translation {
+    display: block;
+}
+
+.explain-notes {
+    display: block;
+    font-style: italic;
+}
+
 #debugLog {
     padding: var(--space-2) var(--space-4);
 }

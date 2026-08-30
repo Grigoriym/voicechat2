@@ -1,19 +1,21 @@
 // Conversation screen (ui/chat.html). Extracted from the pre-rework
 // index.html: push-to-talk recording (native MediaRecorder), the
 // experimental VAD path, websocket streaming, transcript, and latency
-// metrics. The scenario + conversation model + grammar corrector model are
-// chosen on the Setup screen and read from sessionStorage here rather than
-// from on-page dropdowns.
+// metrics. The scenario + conversation model + grammar corrector model +
+// explainer model are chosen on the Setup screen and read from
+// sessionStorage here rather than from on-page dropdowns.
 
 const SCENARIO_STORAGE_KEY = "vc2-scenario";
 const MODEL_STORAGE_KEY = "vc2-model";
 const GRAMMAR_MODEL_STORAGE_KEY = "vc2-grammar-model";
+const EXPLAINER_MODEL_STORAGE_KEY = "vc2-explainer-model";
 
 const scenarioId = sessionStorage.getItem(SCENARIO_STORAGE_KEY);
 const modelId = sessionStorage.getItem(MODEL_STORAGE_KEY);
 const grammarModelId = sessionStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY);
+const explainerModelId = sessionStorage.getItem(EXPLAINER_MODEL_STORAGE_KEY);
 
-if (!scenarioId || !modelId || !grammarModelId) {
+if (!scenarioId || !modelId || !grammarModelId || !explainerModelId) {
     // No choice made yet (e.g. a direct/bookmarked visit) — send the user
     // back to Setup rather than starting a conversation with nothing set.
     window.location.href = "/";
@@ -83,9 +85,11 @@ async function initActiveContextDisplay() {
         const scenario = data.scenarios.find((s) => s.id === scenarioId);
         el.textContent =
             `scenario: ${scenario ? scenario.label : scenarioId} · model: ${modelId} · ` +
-            `corrector: ${grammarModelId}`;
+            `corrector: ${grammarModelId} · explainer: ${explainerModelId}`;
     } catch (error) {
-        el.textContent = `scenario: ${scenarioId} · model: ${modelId} · corrector: ${grammarModelId}`;
+        el.textContent =
+            `scenario: ${scenarioId} · model: ${modelId} · corrector: ${grammarModelId} · ` +
+            `explainer: ${explainerModelId}`;
         log(`Error loading scenario label: ${error.message}`);
     }
 }
@@ -576,6 +580,9 @@ function initializeWebSocketAsync() {
                         if (aiMessageElement) {
                             const cursor = aiMessageElement.querySelector(".ai-cursor");
                             if (cursor) cursor.remove();
+                            if (currentAIResponse) {
+                                addExplainButton(aiMessageElement, currentAIResponse);
+                            }
                         }
                     } else if (message.type === "error") {
                         log(`Error from server: ${message.message}`);
@@ -613,9 +620,59 @@ function displayMessage(role, content, turn) {
     body.className = "message-body";
     body.textContent = `${ROLE_LABEL[role] || role}: ${content}`;
     messageElement.appendChild(body);
+    // The user's full turn is known immediately (unlike the assistant's,
+    // which streams in) — its Explain button can go on right away instead
+    // of waiting for processing_complete.
+    if (role === "user") {
+        addExplainButton(messageElement, content);
+    }
     conversationLog.appendChild(messageElement);
     conversationLog.scrollTop = conversationLog.scrollHeight;
     return messageElement;
+}
+
+// Adds an "Explain" button to a chat bubble that, on click, POSTs the
+// turn's full text to /api/explain (using the Setup screen's chosen
+// explainer model) and replaces itself with the translation + notes.
+function addExplainButton(element, text) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "explain-btn";
+    btn.textContent = "Explain";
+    btn.addEventListener("click", () => runExplain(element, btn, text));
+    element.appendChild(btn);
+}
+
+async function runExplain(element, btn, text) {
+    btn.disabled = true;
+    btn.textContent = "Explaining…";
+    try {
+        const resp = await fetch("/api/explain", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, model: explainerModelId }),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+        const data = await resp.json();
+
+        const note = document.createElement("div");
+        note.className = "explain-note";
+        const translation = document.createElement("span");
+        translation.className = "explain-translation";
+        translation.textContent = `→ ${data.translation}`;
+        note.appendChild(translation);
+        if (data.notes && data.notes.toLowerCase() !== "none") {
+            const notes = document.createElement("span");
+            notes.className = "explain-notes";
+            notes.textContent = data.notes;
+            note.appendChild(notes);
+        }
+        btn.replaceWith(note);
+    } catch (error) {
+        btn.disabled = false;
+        btn.textContent = "Explain (retry)";
+        log(`Explain failed: ${error.message}`);
+    }
 }
 
 function updateAIResponse(newContent) {

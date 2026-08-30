@@ -30,14 +30,27 @@ TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "http://localhost:8003/tts")
 # docs/CHECKLIST.md "Grammar-check pass".
 GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "gemma2:9b")
 
+# Explain-on-demand: user clicks "Explain" on a chat bubble to get an English
+# translation + brief notes for that turn, via a separate, user-selectable
+# model (unlike grammar-check, this isn't fired automatically — no session
+# state needed, the UI just sends its chosen model with each request).
+EXPLAINER_MODEL = os.getenv("EXPLAINER_MODEL", "llama3.1:8b")
+
 # Free-text notes shown next to each model in the Setup screen's dropdowns —
 # past testing findings (e.g. which models are unreliable as a grammar
 # corrector) so they aren't lost tribal knowledge. Keyed by exact Ollama
 # model name; a model with no entry here just shows unadorned in the UI.
 MODEL_NOTES: dict[str, str] = {
-    "llama3.1:8b": "conversation default; weak as grammar corrector (tested)",
-    "gemma2:9b": "grammar-check default; catches real errors reliably (tested)",
-    "mistral:7b": "weak as grammar corrector (tested)",
+    "llama3.1:8b": (
+        "conversation + explainer default; weak as grammar corrector; ignores the "
+        "explain format but content is still usable (all tested)"
+    ),
+    "gemma2:9b": (
+        "grammar-check default; catches real errors reliably; ignores the explain "
+        "format but content is still usable (all tested)"
+    ),
+    "mistral:7b": "weak as grammar corrector; follows the explain format cleanly (tested)",
+    "qwen2.5-coder:14b": "follows the explain format cleanly (tested)",
     "cas/discolm-mfto-german:latest": (
         "German-tuned, but weak as grammar corrector even at temperature 0 (tested)"
     ),
@@ -366,6 +379,74 @@ async def send_grammar_check(websocket, role, turn_id, text, model: str = GRAMMA
         logger.warning(f"Failed to send grammar_check (client likely disconnected): {e}")
 
 
+EXPLAIN_SYSTEM_PROMPT = (
+    "You are a German-English language helper for a spoken German conversation "
+    "practice app. You will be given one German utterance. Reply with exactly "
+    "two lines, nothing else:\n"
+    "Translation: <the English translation>\n"
+    "Notes: <1-2 short sentences on any notable grammar, idiom, or word choice "
+    'worth understanding, or "none" if there is nothing notable>'
+)
+
+
+async def explain_text(text: str, model: str) -> dict | None:
+    """Translates + briefly annotates one utterance via `model`. Returns
+    {"translation": "...", "notes": "..."}, or None if the request failed or
+    came back empty — the caller surfaces that as an error, unlike
+    check_grammar this is a user-triggered, on-demand request. Prefers a
+    reply in the requested "Translation:/Notes:" format but falls back to
+    treating an unlabeled reply as translation-then-notes rather than
+    failing on a still-useful answer (see MODEL_NOTES: several models don't
+    follow the format)."""
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                LLM_ENDPOINT,
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
+                        {"role": "user", "content": text},
+                    ],
+                    "temperature": 0,
+                    "stream": False,
+                },
+            ) as response,
+        ):
+            data = await response.json()
+        reply = data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"Explain error: {str(e)}")
+        return None
+
+    translation = None
+    notes = None
+    for line in reply.splitlines():
+        if line.startswith("Translation:"):
+            translation = line[len("Translation:") :].strip()
+        elif line.startswith("Notes:"):
+            notes = line[len("Notes:") :].strip()
+
+    if translation is not None:
+        return {"translation": translation, "notes": notes or ""}
+
+    # Several models (see MODEL_NOTES) ignore the "Translation:/Notes:"
+    # instruction and just reply with the translation, then optionally a
+    # blank line and an explanatory sentence — still useful, so fall back to
+    # treating the first line as the translation and the rest as notes
+    # rather than failing outright on a perfectly good reply.
+    if not reply:
+        return None
+    first_line, _, rest = reply.partition("\n")
+    notes = rest.strip()
+    if notes.startswith("Notes:"):
+        notes = notes[len("Notes:") :].strip()
+    if notes.lower() == "none":
+        notes = ""
+    return {"translation": first_line.strip(), "notes": notes}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -629,7 +710,21 @@ async def list_models():
         "models": [{"name": name, "note": MODEL_NOTES.get(name, "")} for name in names],
         "default": LLM_MODEL,
         "grammar_default": GRAMMAR_CHECK_MODEL,
+        "explainer_default": EXPLAINER_MODEL,
     }
+
+
+class ExplainRequest(BaseModel):
+    text: str
+    model: str
+
+
+@app.post("/api/explain")
+async def explain(req: ExplainRequest):
+    result = await explain_text(req.text, req.model)
+    if result is None:
+        raise HTTPException(status_code=502, detail="Couldn't get an explanation from the model")
+    return result
 
 
 class ScenarioCreate(BaseModel):

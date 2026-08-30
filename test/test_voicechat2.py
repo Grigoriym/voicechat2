@@ -119,7 +119,7 @@ def test_calculate_latencies(voicechat2):
     }
 
 
-def test_list_models_includes_notes_and_both_defaults(voicechat2, monkeypatch):
+def test_list_models_includes_notes_and_all_defaults(voicechat2, monkeypatch):
     responses = {
         ("GET", "http://localhost:11434/api/tags"): {
             "models": [{"name": "gemma2:9b"}, {"name": "some-untested-model"}]
@@ -137,6 +137,7 @@ def test_list_models_includes_notes_and_both_defaults(voicechat2, monkeypatch):
         ],
         "default": voicechat2.LLM_MODEL,
         "grammar_default": voicechat2.GRAMMAR_CHECK_MODEL,
+        "explainer_default": voicechat2.EXPLAINER_MODEL,
     }
 
 
@@ -491,6 +492,148 @@ def test_check_grammar_sends_given_model_not_the_default(voicechat2, monkeypatch
 
     assert captured["json"]["model"] == "some-other-model"
     assert captured["json"]["temperature"] == 0
+
+
+def test_explain_text_parses_translation_and_notes(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Translation: How are you?\n"
+                            'Notes: Informal "du" form, appropriate between friends.'
+                        )
+                    }
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("Wie geht es dir?", "some-model"))
+
+    assert result == {
+        "translation": "How are you?",
+        "notes": 'Informal "du" form, appropriate between friends.',
+    }
+
+
+def test_explain_text_falls_back_to_first_line_when_format_ignored(voicechat2, monkeypatch):
+    # Some models (see MODEL_NOTES) ignore the "Translation:/Notes:" format
+    # and just reply with a translation, then a blank line, then a note.
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [
+                {"message": {"content": ("How are you?\n\nThis is a common German greeting.")}}
+            ]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("Wie geht es dir?", "some-model"))
+
+    assert result == {"translation": "How are you?", "notes": "This is a common German greeting."}
+
+
+def test_explain_text_fallback_treats_bare_none_as_no_notes(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "How are you doing?\nNone"}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("Wie geht es dir?", "some-model"))
+
+    assert result == {"translation": "How are you doing?", "notes": ""}
+
+
+def test_explain_text_fallback_strips_stray_notes_prefix(voicechat2, monkeypatch):
+    # Some models only follow the format for the second line, leaving a
+    # stray "Notes:" prefix for the fallback path to clean up.
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "I don't know, maybe you could suggest something.\n"
+                            'Notes: "Vorschlagen" means to suggest.'
+                        )
+                    }
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("...", "some-model"))
+
+    assert result == {
+        "translation": "I don't know, maybe you could suggest something.",
+        "notes": '"Vorschlagen" means to suggest.',
+    }
+
+
+def test_explain_text_returns_none_for_empty_reply(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "   "}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("Hallo!", "some-model"))
+
+    assert result is None
+
+
+def test_explain_text_returns_none_on_request_error(voicechat2, monkeypatch):
+    class _FailingSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise aiohttp.ClientConnectionError("boom")
+
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", lambda *a, **kw: _FailingSession())
+
+    result = asyncio.run(voicechat2.explain_text("Hallo!", "some-model"))
+
+    assert result is None
+
+
+def test_explain_endpoint_returns_translation_and_notes(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "Translation: Hello!\nNotes: none"}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.post("/api/explain", json={"text": "Hallo!", "model": "some-model"})
+
+    assert response.status_code == 200
+    assert response.json() == {"translation": "Hello!", "notes": "none"}
+
+
+def test_explain_endpoint_returns_502_on_empty_reply(voicechat2, monkeypatch):
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": ""}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.post("/api/explain", json={"text": "Hallo!", "model": "some-model"})
+
+    assert response.status_code == 502
 
 
 class _FakeWebSocket:
