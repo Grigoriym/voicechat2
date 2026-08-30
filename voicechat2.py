@@ -447,6 +447,54 @@ async def explain_text(text: str, model: str) -> dict | None:
     return {"translation": first_line.strip(), "notes": notes}
 
 
+async def run_user_turn(websocket: WebSocket, session_id, get_text):
+    """Shared by the stop_recording (voice) and send_text (typed) websocket
+    actions: handles the interrupt-in-progress case, then once we have the
+    user's text (from `get_text(turn_id)` — transcription or the typed
+    string) runs it through the same add_user_message/grammar-check/LLM/TTS
+    pipeline either input method goes through identically. Always ends by
+    sending processing_complete, even on error."""
+    conversation_manager.reset_latency_metrics(session_id)
+    if conversation_manager.sessions[session_id]["is_processing"]:
+        logger.warning("Interrupting ongoing processing")
+        conversation_manager.sessions[session_id]["llm_output_sentences"].clear()
+        conversation_manager.sessions[session_id]["is_processing"] = False
+        await websocket.send_json({"type": "interrupted"})
+        return
+
+    conversation_manager.sessions[session_id]["is_processing"] = True
+    turn_id = conversation_manager.sessions[session_id]["current_turn"]
+    try:
+        text = await get_text(turn_id)
+        conversation_manager.add_user_message(session_id, text)
+
+        # Echo the user's turn back — chat.js's "transcription" handler is
+        # what actually creates the chat bubble, for both voice and typed
+        # input alike.
+        await websocket.send_json({"type": "transcription", "content": text, "turn": turn_id})
+        asyncio.create_task(
+            send_grammar_check(
+                websocket,
+                "user",
+                turn_id,
+                text,
+                conversation_manager.sessions[session_id]["grammar_model"],
+            )
+        )
+
+        await process_and_stream(websocket, session_id, text, turn_id)
+
+        latencies = conversation_manager.calculate_latencies(session_id)
+        await websocket.send_json({"type": "latency_metrics", "metrics": latencies})
+    except Exception as e:
+        logger.error(f"Error during processing: {str(e)}")
+        logger.error(traceback.format_exc())
+        await websocket.send_json({"type": "error", "message": str(e)})
+    finally:
+        conversation_manager.sessions[session_id]["is_processing"] = False
+        await websocket.send_json({"type": "processing_complete"})
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -500,55 +548,27 @@ async def websocket_endpoint(websocket: WebSocket):
                             logger.warning(f"Unknown scenario requested: {scenario}")
                     elif data.get("action") == "stop_recording":
                         logger.info("Stop recording message received. Processing audio...")
-                        conversation_manager.reset_latency_metrics(session_id)
-                        if conversation_manager.sessions[session_id]["is_processing"]:
-                            logger.warning("Interrupting ongoing processing")
-                            conversation_manager.sessions[session_id][
-                                "llm_output_sentences"
-                            ].clear()
-                            conversation_manager.sessions[session_id]["is_processing"] = False
-                            await websocket.send_json({"type": "interrupted"})
-                        else:
-                            conversation_manager.sessions[session_id]["is_processing"] = True
-                            turn_id = conversation_manager.sessions[session_id]["current_turn"]
-                            try:
-                                audio_data = conversation_manager.sessions[session_id][
-                                    "audio_buffer"
-                                ]
-                                logger.info(f"Processing audio data. Size: {len(audio_data)} bytes")
-                                text = await transcribe_audio(audio_data, session_id, turn_id)
-                                if not text:
-                                    raise ValueError("Transcription resulted in empty text")
-                                logger.info(f"Transcription result: {text}")
-                                conversation_manager.add_user_message(session_id, text)
 
-                                # Send transcribed text to client
-                                await websocket.send_json(
-                                    {"type": "transcription", "content": text, "turn": turn_id}
-                                )
-                                asyncio.create_task(
-                                    send_grammar_check(
-                                        websocket,
-                                        "user",
-                                        turn_id,
-                                        text,
-                                        conversation_manager.sessions[session_id]["grammar_model"],
-                                    )
-                                )
+                        async def get_text_from_audio(turn_id):
+                            audio_data = conversation_manager.sessions[session_id]["audio_buffer"]
+                            logger.info(f"Processing audio data. Size: {len(audio_data)} bytes")
+                            text = await transcribe_audio(audio_data, session_id, turn_id)
+                            if not text:
+                                raise ValueError("Transcription resulted in empty text")
+                            logger.info(f"Transcription result: {text}")
+                            return text
 
-                                await process_and_stream(websocket, session_id, text, turn_id)
+                        await run_user_turn(websocket, session_id, get_text_from_audio)
+                    elif data.get("action") == "send_text":
+                        logger.info("Typed text message received. Processing...")
+                        typed_text = (data.get("text") or "").strip()
 
-                                latencies = conversation_manager.calculate_latencies(session_id)
-                                await websocket.send_json(
-                                    {"type": "latency_metrics", "metrics": latencies}
-                                )
-                            except Exception as e:
-                                logger.error(f"Error during processing: {str(e)}")
-                                logger.error(traceback.format_exc())
-                                await websocket.send_json({"type": "error", "message": str(e)})
-                            finally:
-                                conversation_manager.sessions[session_id]["is_processing"] = False
-                                await websocket.send_json({"type": "processing_complete"})
+                        async def get_typed_text(turn_id, typed_text=typed_text):
+                            if not typed_text:
+                                raise ValueError("Typed message was empty")
+                            return typed_text
+
+                        await run_user_turn(websocket, session_id, get_typed_text)
                     else:
                         logger.warning(f"Received unexpected action: {data.get('action')}")
                 except json.JSONDecodeError:

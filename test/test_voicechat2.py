@@ -750,6 +750,52 @@ def test_websocket_set_grammar_model_is_used_for_grammar_check(voicechat2, monke
     assert captured["model"] == "custom-model"
 
 
+def test_websocket_send_text_processes_typed_message(voicechat2, monkeypatch):
+    async def fake_check_grammar(text, model):
+        assert text == "Hallo, wie geht's?"
+        return {"correct": True, "corrected": None}
+
+    monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
+
+    async def fake_process_and_stream(websocket, session_id, text, turn_id):
+        return None
+
+    monkeypatch.setattr(voicechat2, "process_and_stream", fake_process_and_stream)
+
+    client = TestClient(voicechat2.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"action": "send_text", "text": "Hallo, wie geht's?"})
+
+        # Same 4 sends as the voice path: transcription (echo), grammar_check
+        # (user), latency_metrics, processing_complete.
+        messages = [ws.receive_json() for _ in range(4)]
+
+    transcription = next(m for m in messages if m["type"] == "transcription")
+    assert transcription == {"type": "transcription", "content": "Hallo, wie geht's?", "turn": 0}
+
+    grammar_check = next(m for m in messages if m["type"] == "grammar_check")
+    assert grammar_check == {
+        "type": "grammar_check",
+        "role": "user",
+        "turn": 0,
+        "correct": True,
+        "corrected": None,
+    }
+    assert any(m["type"] == "processing_complete" for m in messages)
+
+
+def test_websocket_send_text_with_blank_text_sends_error(voicechat2, monkeypatch):
+    client = TestClient(voicechat2.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"action": "send_text", "text": "   "})
+
+        messages = [ws.receive_json() for _ in range(2)]
+
+    error = next(m for m in messages if m["type"] == "error")
+    assert "empty" in error["message"].lower()
+    assert any(m["type"] == "processing_complete" for m in messages)
+
+
 def test_generate_llm_response_sends_grammar_check_for_assistant_turn(voicechat2, monkeypatch):
     async def fake_check_grammar(text, model):
         assert text == "Hallo."

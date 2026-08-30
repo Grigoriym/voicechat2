@@ -533,3 +533,33 @@ back (empty reply) or the request itself failed.
 `ruff check`, `ruff format --check`, `mypy`, `pytest -q` (59 passed) all green; manually verified via
 Chrome automation against the rebuilt `vc2` container — both a simulated user bubble and a simulated
 completed AI bubble showed a working Explain button that fetched and rendered a translation + notes.
+
+## Typed-message alternative to push-to-talk (2026-08-30)
+
+A text input + "Send" button on `chat.html` (Enter also submits) sends a new `send_text` websocket
+action instead of recording audio. Server side, `stop_recording` (voice) and `send_text` (typed) now
+share a `run_user_turn(websocket, session_id, get_text)` helper — extracted from what used to be
+`stop_recording`'s inline body — that handles the interrupt-in-progress case and then, once
+`get_text(turn_id)` resolves (transcription or the typed string), runs add_user_message /
+grammar-check / LLM / TTS identically either way. The server echoes the typed text back as the same
+`"transcription"` message type voice replies already use, so chat.js's existing handler creates the
+chat bubble with zero new client-side message-type handling.
+
+Two bugs found and fixed along the way, both blocking, not just polish:
+- The global spacebar push-to-talk shortcut (`keydown`/`keyup` on `document`) was swallowing every
+  space typed into the new input and toggling recording instead — fixed by skipping both handlers
+  when `event.target === typeInput`.
+- `window.onload` awaited `initializeRecorder()` with no try/catch, so on a mic failure (denied
+  permission, no device — hit directly while testing this in a Chrome automation profile) the
+  unhandled rejection skipped `initializeWebSocketAsync()` entirely, meaning typed input silently
+  couldn't work either even though it needs no microphone at all. Fixed by wrapping the recorder
+  init in its own try/catch that disables `recordButton` (with a `title` explaining why) and sets a
+  new `micAvailable` flag, checked in `socket.onopen` instead of unconditionally re-enabling the
+  record button.
+
+`ruff check`, `ruff format --check`, `mypy`, `pytest -q` (61 passed, +2 for `send_text`: happy path
+and blank-text-sends-error) all green. Manually verified via Chrome automation against the rebuilt
+`vc2` container: with the mic unavailable, confirmed the websocket now still connects and the typed
+path still fully works (both Enter and the Send button), through the actual UI, not just a console
+bypass — round-tripped a typed German message through transcription echo, grammar-check, and a full
+LLM reply with its own grammar-check and Explain button.

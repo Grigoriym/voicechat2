@@ -27,6 +27,8 @@ const recordButton = document.getElementById("recordButton");
 const status = document.getElementById("status");
 const logArea = document.getElementById("logArea");
 const timerDisplay = document.getElementById("timer");
+const typeInput = document.getElementById("typeInput");
+const sendTypedBtn = document.getElementById("sendTypedBtn");
 
 // Recolor the status badge whenever its text changes, instead of touching
 // every one of the many call sites that set it directly.
@@ -49,6 +51,7 @@ let socket;
 let isProcessing = false;
 let latencyIntervalId = null;
 let ping = null;
+let micAvailable = false;
 
 // Recording
 let isRecording = false;
@@ -322,8 +325,10 @@ recordButton.addEventListener("mousedown", startRecording);
 recordButton.addEventListener("mouseup", stopRecording);
 recordButton.addEventListener("mouseleave", stopRecording);
 
-// Spacebar event listeners
+// Spacebar event listeners. Skipped while the typed-message input has focus
+// so a space typed there doesn't get eaten as a push-to-talk shortcut.
 document.addEventListener("keydown", (event) => {
+    if (event.target === typeInput) return;
     if (event.code === "Space" && !isRecording) {
         event.preventDefault();
         startRecording();
@@ -331,6 +336,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("keyup", (event) => {
+    if (event.target === typeInput) return;
     if (event.code === "Space") {
         event.preventDefault();
         stopRecording();
@@ -346,6 +352,29 @@ recordButton.addEventListener("touchstart", (event) => {
 recordButton.addEventListener("touchend", (event) => {
     event.preventDefault();
     stopRecording();
+});
+
+// Typed-message alternative to push-to-talk: sends the same "send_text"
+// websocket action the server treats identically to a voice turn (see
+// run_user_turn in voicechat2.py) — the server's echoed "transcription"
+// message is what actually creates the chat bubble, same as for voice.
+function sendTypedMessage() {
+    const text = typeInput.value.trim();
+    if (!text) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log("WebSocket is not open. Cannot send typed message.");
+        return;
+    }
+    socket.send(JSON.stringify({ action: "send_text", text }));
+    typeInput.value = "";
+}
+
+sendTypedBtn.addEventListener("click", sendTypedMessage);
+typeInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+        event.preventDefault();
+        sendTypedMessage();
+    }
 });
 
 function playNextAudio() {
@@ -522,7 +551,9 @@ function initializeWebSocketAsync() {
         socket.onopen = () => {
             log("WebSocket connected");
             status.textContent = "Ready";
-            recordButton.disabled = false;
+            recordButton.disabled = !micAvailable;
+            typeInput.disabled = false;
+            sendTypedBtn.disabled = false;
             startLatencyMeasurement();
             socket.send(JSON.stringify({ action: "set_model", model: modelId }));
             socket.send(
@@ -536,6 +567,8 @@ function initializeWebSocketAsync() {
             log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason}`);
             status.textContent = "Disconnected";
             recordButton.disabled = true;
+            typeInput.disabled = true;
+            sendTypedBtn.disabled = true;
             stopLatencyMeasurement();
             reject(new Error("WebSocket closed"));
         };
@@ -709,11 +742,22 @@ function applyGrammarCheck(message) {
     }
 }
 
-// Initialize recorder and WebSocket when the page loads
+// Initialize recorder and WebSocket when the page loads. The recorder init
+// is its own try/catch, separate from the websocket one below: without it,
+// a mic failure (denied permission, no device) used to throw out of this
+// whole function and skip initializeWebSocketAsync() entirely — silently
+// breaking typed input too, even though it doesn't need a microphone at all.
 window.onload = async () => {
     await initActiveContextDisplay();
-    await initializeRecorder();
-    log("Recorder ready (MediaRecorder)");
+    try {
+        await initializeRecorder();
+        micAvailable = true;
+        log("Recorder ready (MediaRecorder)");
+    } catch (error) {
+        log(`Microphone unavailable, typed input still works: ${error.message}`);
+        recordButton.disabled = true;
+        recordButton.title = "Microphone unavailable";
+    }
 
     try {
         await initializeWebSocketAsync();
