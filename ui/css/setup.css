@@ -118,6 +118,17 @@
     flex-wrap: wrap;
 }
 
+/* Long per-model notes appended to option labels (see setup.js) can make
+   the select wider than its content otherwise implies. Flex items default
+   to min-width: auto, which stops them shrinking below that content size —
+   without min-width: 0 here the select pushes past the card's edge instead
+   of wrapping/truncating. */
+.model-row select {
+    flex: 1 1 240px;
+    min-width: 0;
+    max-width: 100%;
+}
+
 .status-hint {
     display: block;
     font-size: 0.8rem;
