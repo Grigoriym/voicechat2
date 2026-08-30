@@ -119,6 +119,27 @@ def test_calculate_latencies(voicechat2):
     }
 
 
+def test_list_models_includes_notes_and_both_defaults(voicechat2, monkeypatch):
+    responses = {
+        ("GET", "http://localhost:11434/api/tags"): {
+            "models": [{"name": "gemma2:9b"}, {"name": "some-untested-model"}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+    client = TestClient(voicechat2.app)
+
+    response = client.get("/api/models")
+
+    assert response.json() == {
+        "models": [
+            {"name": "gemma2:9b", "note": voicechat2.MODEL_NOTES["gemma2:9b"]},
+            {"name": "some-untested-model", "note": ""},
+        ],
+        "default": voicechat2.LLM_MODEL,
+        "grammar_default": voicechat2.GRAMMAR_CHECK_MODEL,
+    }
+
+
 def test_unload_model_asks_ollama_to_unload_whatever_is_loaded(voicechat2, monkeypatch):
     responses = {
         ("GET", "http://localhost:11434/api/ps"): {"models": [{"name": "mistral:7b"}]},
@@ -449,6 +470,29 @@ def test_check_grammar_returns_none_on_request_error(voicechat2, monkeypatch):
     assert result is None
 
 
+def test_check_grammar_sends_given_model_not_the_default(voicechat2, monkeypatch):
+    captured = {}
+
+    class _CapturingSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        def post(self, url, json, **kwargs):
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeAsyncCM(_FakeResponse({"choices": [{"message": {"content": "OK"}}]}))
+
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", lambda *a, **kw: _CapturingSession())
+
+    asyncio.run(voicechat2.check_grammar("Hallo!", "some-other-model"))
+
+    assert captured["json"]["model"] == "some-other-model"
+    assert captured["json"]["temperature"] == 0
+
+
 class _FakeWebSocket:
     def __init__(self):
         self.sent = []
@@ -458,7 +502,7 @@ class _FakeWebSocket:
 
 
 def test_send_grammar_check_sends_message_when_check_grammar_parses(voicechat2, monkeypatch):
-    async def fake_check_grammar(text):
+    async def fake_check_grammar(text, model):
         assert text == "Ich bin ein Test."
         return {"correct": False, "corrected": "Ich bin ein Test!"}
 
@@ -479,7 +523,7 @@ def test_send_grammar_check_sends_message_when_check_grammar_parses(voicechat2, 
 
 
 def test_send_grammar_check_sends_nothing_when_check_grammar_returns_none(voicechat2, monkeypatch):
-    async def fake_check_grammar(text):
+    async def fake_check_grammar(text, model):
         return None
 
     monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
@@ -496,7 +540,7 @@ def test_websocket_sends_grammar_check_for_user_turn(voicechat2, monkeypatch):
 
     monkeypatch.setattr(voicechat2, "transcribe_audio", fake_transcribe_audio)
 
-    async def fake_check_grammar(text):
+    async def fake_check_grammar(text, model):
         assert text == "Ich bin ein Test."
         return {"correct": True, "corrected": None}
 
@@ -529,8 +573,42 @@ def test_websocket_sends_grammar_check_for_user_turn(voicechat2, monkeypatch):
     }
 
 
+def test_websocket_set_grammar_model_is_used_for_grammar_check(voicechat2, monkeypatch):
+    async def fake_transcribe_audio(audio_data, session_id, turn_id):
+        return "Ich bin ein Test."
+
+    monkeypatch.setattr(voicechat2, "transcribe_audio", fake_transcribe_audio)
+
+    captured = {}
+
+    async def fake_check_grammar(text, model):
+        captured["model"] = model
+        return {"correct": True, "corrected": None}
+
+    monkeypatch.setattr(voicechat2, "check_grammar", fake_check_grammar)
+
+    async def fake_process_and_stream(websocket, session_id, text, turn_id):
+        return None
+
+    monkeypatch.setattr(voicechat2, "process_and_stream", fake_process_and_stream)
+
+    client = TestClient(voicechat2.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"action": "set_grammar_model", "grammar_model": "custom-model"})
+        assert ws.receive_json() == {
+            "type": "grammar_model_set",
+            "grammar_model": "custom-model",
+        }
+
+        ws.send_bytes(b"fake-audio-bytes")
+        ws.send_json({"action": "stop_recording"})
+        [ws.receive_json() for _ in range(4)]
+
+    assert captured["model"] == "custom-model"
+
+
 def test_generate_llm_response_sends_grammar_check_for_assistant_turn(voicechat2, monkeypatch):
-    async def fake_check_grammar(text):
+    async def fake_check_grammar(text, model):
         assert text == "Hallo."
         return {"correct": False, "corrected": "Hallo!"}
 

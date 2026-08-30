@@ -42,11 +42,21 @@
                 <div class="card-header">
                     <h2>Model</h2>
                 </div>
-                <div class="model-row">
-                    <select id="modelSelect"><option>loading…</option></select>
-                    <button id="unloadModelBtn" class="btn-secondary" type="button">Free GPU memory</button>
+                <div class="model-group">
+                    <label for="modelSelect">Conversation model</label>
+                    <div class="model-row">
+                        <select id="modelSelect"><option>loading…</option></select>
+                        <button id="unloadModelBtn" class="btn-secondary" type="button">Free GPU memory</button>
+                    </div>
+                    <span id="modelStatus" class="status-hint"></span>
                 </div>
-                <span id="modelStatus" class="status-hint"></span>
+                <div class="model-group">
+                    <label for="grammarModelSelect">Grammar corrector model</label>
+                    <div class="model-row">
+                        <select id="grammarModelSelect"><option>loading…</option></select>
+                    </div>
+                    <span id="grammarModelStatus" class="status-hint"></span>
+                </div>
             </div>
 
             <div class="card">

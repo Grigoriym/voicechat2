@@ -335,6 +335,16 @@ caught the same error cleanly at `temperature: 0` — chosen over `llama3.1:8b` 
 the checker independent of the conversation model (see "both user and AI messages get checked" above:
 `llama3.1:8b` grading its own replies would defeat that).
 
+Update (2026-08-30): the corrector model is now user-selectable per session, same as the conversation
+model — a "Grammar corrector model" dropdown on the Setup screen, stored in `session["grammar_model"]`
+and set via a new `set_grammar_model` websocket action (mirrors `set_model`/`set_scenario`). Since
+manually testing which models are/aren't reliable correctors was exactly how the temperature/model bug
+above got found, and that kind of finding is otherwise just tribal knowledge someone has to remember
+between sessions, `/api/models` now also returns a short `note` per model from a hardcoded
+`MODEL_NOTES` dict in `voicechat2.py` (e.g. "weak as grammar corrector (tested)"), appended directly
+into each `<option>`'s label in both dropdowns — visible while picking, not just on hover. Add an
+entry to `MODEL_NOTES` whenever a model gets meaningfully tested for either role.
+
 ## Grammar-check steps
 
 - [x] 13. `check_grammar()` helper + config (`voicechat2.py`)

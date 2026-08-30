@@ -1,16 +1,19 @@
 // Conversation screen (ui/chat.html). Extracted from the pre-rework
 // index.html: push-to-talk recording (native MediaRecorder), the
 // experimental VAD path, websocket streaming, transcript, and latency
-// metrics. The scenario + model are chosen on the Setup screen and read
-// from sessionStorage here rather than from on-page dropdowns.
+// metrics. The scenario + conversation model + grammar corrector model are
+// chosen on the Setup screen and read from sessionStorage here rather than
+// from on-page dropdowns.
 
 const SCENARIO_STORAGE_KEY = "vc2-scenario";
 const MODEL_STORAGE_KEY = "vc2-model";
+const GRAMMAR_MODEL_STORAGE_KEY = "vc2-grammar-model";
 
 const scenarioId = sessionStorage.getItem(SCENARIO_STORAGE_KEY);
 const modelId = sessionStorage.getItem(MODEL_STORAGE_KEY);
+const grammarModelId = sessionStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY);
 
-if (!scenarioId || !modelId) {
+if (!scenarioId || !modelId || !grammarModelId) {
     // No choice made yet (e.g. a direct/bookmarked visit) — send the user
     // back to Setup rather than starting a conversation with nothing set.
     window.location.href = "/";
@@ -78,9 +81,11 @@ async function initActiveContextDisplay() {
         const resp = await fetch("/api/scenarios");
         const data = await resp.json();
         const scenario = data.scenarios.find((s) => s.id === scenarioId);
-        el.textContent = `scenario: ${scenario ? scenario.label : scenarioId} · model: ${modelId}`;
+        el.textContent =
+            `scenario: ${scenario ? scenario.label : scenarioId} · model: ${modelId} · ` +
+            `corrector: ${grammarModelId}`;
     } catch (error) {
-        el.textContent = `scenario: ${scenarioId} · model: ${modelId}`;
+        el.textContent = `scenario: ${scenarioId} · model: ${modelId} · corrector: ${grammarModelId}`;
         log(`Error loading scenario label: ${error.message}`);
     }
 }
@@ -516,6 +521,9 @@ function initializeWebSocketAsync() {
             recordButton.disabled = false;
             startLatencyMeasurement();
             socket.send(JSON.stringify({ action: "set_model", model: modelId }));
+            socket.send(
+                JSON.stringify({ action: "set_grammar_model", grammar_model: grammarModelId })
+            );
             socket.send(JSON.stringify({ action: "set_scenario", scenario: scenarioId }));
             resolve(socket);
         };

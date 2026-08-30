@@ -24,10 +24,24 @@ LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
 OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434")
 TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "http://localhost:8003/tts")
 
-# Grammar-check pass: a separate, fixed model (independent of whichever model
-# is driving the conversation) used to silently score each turn's German and
-# offer a correction. See docs/CHECKLIST.md "Grammar-check pass".
+# Grammar-check pass: a separate model (independent of whichever model is
+# driving the conversation, though also user-selectable per session) used to
+# silently score each turn's German and offer a correction. See
+# docs/CHECKLIST.md "Grammar-check pass".
 GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "gemma2:9b")
+
+# Free-text notes shown next to each model in the Setup screen's dropdowns —
+# past testing findings (e.g. which models are unreliable as a grammar
+# corrector) so they aren't lost tribal knowledge. Keyed by exact Ollama
+# model name; a model with no entry here just shows unadorned in the UI.
+MODEL_NOTES: dict[str, str] = {
+    "llama3.1:8b": "conversation default; weak as grammar corrector (tested)",
+    "gemma2:9b": "grammar-check default; catches real errors reliably (tested)",
+    "mistral:7b": "weak as grammar corrector (tested)",
+    "cas/discolm-mfto-german:latest": (
+        "German-tuned, but weak as grammar corrector even at temperature 0 (tested)"
+    ),
+}
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -147,6 +161,7 @@ class ConversationManager:
             "conversation": [build_system_message(DEFAULT_SCENARIO)],
             "scenario": DEFAULT_SCENARIO,
             "model": LLM_MODEL,
+            "grammar_model": GRAMMAR_CHECK_MODEL,
             "llm_output_sentences": deque(),
             "current_turn": 0,
             "is_processing": False,
@@ -288,18 +303,18 @@ GRAMMAR_CHECK_SYSTEM_PROMPT = (
 )
 
 
-async def check_grammar(text: str) -> dict | None:
-    """Scores one utterance's German via GRAMMAR_CHECK_MODEL. Returns
-    {"correct": True, "corrected": None} or {"correct": False, "corrected":
-    "..."}, or None if the reply didn't parse or the request failed — the
-    caller skips sending an update rather than show a wrong badge."""
+async def check_grammar(text: str, model: str = GRAMMAR_CHECK_MODEL) -> dict | None:
+    """Scores one utterance's German via `model`. Returns {"correct": True,
+    "corrected": None} or {"correct": False, "corrected": "..."}, or None if
+    the reply didn't parse or the request failed — the caller skips sending
+    an update rather than show a wrong badge."""
     try:
         async with (
             aiohttp.ClientSession() as session,
             session.post(
                 LLM_ENDPOINT,
                 json={
-                    "model": GRAMMAR_CHECK_MODEL,
+                    "model": model,
                     "messages": [
                         {"role": "system", "content": GRAMMAR_CHECK_SYSTEM_PROMPT},
                         {"role": "user", "content": text},
@@ -329,12 +344,12 @@ async def check_grammar(text: str) -> dict | None:
     return None
 
 
-async def send_grammar_check(websocket, role, turn_id, text):
+async def send_grammar_check(websocket, role, turn_id, text, model: str = GRAMMAR_CHECK_MODEL):
     """Runs check_grammar and, if it parsed, sends the result over
     websocket. Meant to be fired via asyncio.create_task so it doesn't block
     the caller; swallows send errors since the client may have disconnected
     by the time the check resolves."""
-    result = await check_grammar(text)
+    result = await check_grammar(text, model)
     if result is None:
         return
     try:
@@ -380,6 +395,18 @@ async def websocket_endpoint(websocket: WebSocket):
                             conversation_manager.sessions[session_id]["model"] = model
                             logger.info(f"Session {session_id} switched to model: {model}")
                             await websocket.send_json({"type": "model_set", "model": model})
+                    elif data.get("action") == "set_grammar_model":
+                        grammar_model = data.get("grammar_model")
+                        if grammar_model:
+                            conversation_manager.sessions[session_id]["grammar_model"] = (
+                                grammar_model
+                            )
+                            logger.info(
+                                f"Session {session_id} switched to grammar model: {grammar_model}"
+                            )
+                            await websocket.send_json(
+                                {"type": "grammar_model_set", "grammar_model": grammar_model}
+                            )
                     elif data.get("action") == "set_scenario":
                         scenario = data.get("scenario")
                         if scenario in get_all_scenarios(CUSTOM_SCENARIOS_PATH):
@@ -419,7 +446,13 @@ async def websocket_endpoint(websocket: WebSocket):
                                     {"type": "transcription", "content": text, "turn": turn_id}
                                 )
                                 asyncio.create_task(
-                                    send_grammar_check(websocket, "user", turn_id, text)
+                                    send_grammar_check(
+                                        websocket,
+                                        "user",
+                                        turn_id,
+                                        text,
+                                        conversation_manager.sessions[session_id]["grammar_model"],
+                                    )
                                 )
 
                                 await process_and_stream(websocket, session_id, text, turn_id)
@@ -553,7 +586,15 @@ async def generate_llm_response(websocket, session_id, text, turn_id):
 
             conversation_manager.add_ai_message(session_id, complete_text)
             logger.debug(complete_text)
-            asyncio.create_task(send_grammar_check(websocket, "assistant", turn_id, complete_text))
+            asyncio.create_task(
+                send_grammar_check(
+                    websocket,
+                    "assistant",
+                    turn_id,
+                    complete_text,
+                    conversation_manager.sessions[session_id]["grammar_model"],
+                )
+            )
 
     except Exception as e:
         logger.error(f"LLM error: {str(e)}")
@@ -580,11 +621,15 @@ async def list_models():
             ) as response,
         ):
             data = await response.json()
-        models = sorted(m["name"] for m in data.get("models", []))
-        return {"models": models, "default": LLM_MODEL}
+        names = sorted(m["name"] for m in data.get("models", []))
     except Exception as e:
         logger.error(f"Failed to list Ollama models: {str(e)}")
-        return {"models": [LLM_MODEL], "default": LLM_MODEL}
+        names = [LLM_MODEL]
+    return {
+        "models": [{"name": name, "note": MODEL_NOTES.get(name, "")} for name in names],
+        "default": LLM_MODEL,
+        "grammar_default": GRAMMAR_CHECK_MODEL,
+    }
 
 
 class ScenarioCreate(BaseModel):
