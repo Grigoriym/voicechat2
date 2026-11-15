@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 2/4 — Current step: 21
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 3/6 — Current step: 23 (21 awaits browser verification, done with 23)
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -644,7 +644,48 @@ Prompt (validated, see the benchmark above; the conversation-context wrapper is 
       Verify: in Chrome, Check on a correct AI line shows no mistakes, and on a wrong user line
       shows the mistake list.
 
-- [ ] 22. Docs (`CLAUDE.md`)
+- [x] 22. Claude as a model provider for every role (`voicechat2.py`)
+      Decided 2026-11-15 (user): **one Local/Claude switch on Setup picks the provider for all
+      roles**; Check stays Claude in both modes (no local model passed), with its own model choice.
+      Claude models are addressed as `claude:<alias>` (`claude:haiku`, `claude:sonnet`,
+      `claude:opus`) through the existing model strings, so `set_model`/`set_grammar_model`/
+      `/api/explain` need no new fields. Measured: `claude -p --output-format stream-json
+      --include-partial-messages` starts streaming text in ~1.0s (haiku) / ~1.5s (sonnet).
+      - Shared helpers: `_run_claude(alias, system_prompt, user_text)` (non-streaming; `check_text`
+        moves onto it) and `_stream_claude(...)` (async generator of text deltas).
+      - `generate_llm_response`: the Ollama SSE parsing moves into an `_ollama_deltas` generator;
+        the sentence/TTS/latency loop consumes either provider's deltas. Sentence flushing splits at
+        the last sentence end inside the accumulated text, not only when a delta *ends* with
+        punctuation (Claude's deltas are multi-word, so the old check would hold all audio to the
+        end).
+      - Claude conversation input: the session's system message as `--system-prompt`, the turns as
+        a labeled transcript ending with an instruction to reply to the last learner line.
+      - `check_grammar`/`explain_text` route `claude:` models through `_run_claude`, same parsing.
+      - `/api/models` adds `claude_models` (with notes) + Claude defaults per role;
+        `/api/check` takes an optional `model` (default `claude:sonnet`).
+      Verify: pytest for routing + the new sentence flush + Claude stream parsing (subprocess
+      stubbed); real host runs of each role on a Claude model.
+      Note: the two Ollama one-shot calls (corrector, Explain) were identical apart from the prompt,
+      so they share `_ollama_complete` behind a `complete(model, system, user)` router. `/api/check`
+      returns 400 for a non-Claude model. `CHECK_TIMEOUT_S` → `CLAUDE_TIMEOUT_S` (shared). Claude
+      defaults are all `claude:sonnet` (the only one tested on every role). 78 pytest, all hooks
+      green. Real host runs: Sonnet conversation reply first text 1.1s, first TTS sentence at 1.3s,
+      each later sentence flushed as it completed; corrector Haiku + Sonnet both 3/3 on correct /
+      word-order / lowercase-transcript sentences; Explain Sonnet translated the confusing
+      "Hast du davon eine besonders gerne benutzt?" correctly (local models hadn't).
+
+- [ ] 23. Setup screen: Local/Claude switch + two panels + Check model (`ui/index.html`,
+      `ui/js/setup.js`, `ui/js/chat.js`)
+      A provider radio; Local panel = the three existing Ollama dropdowns; Claude panel = the same
+      three roles over `claude_models`; a Check dropdown (Claude models) shown in both modes.
+      Choices per panel persisted separately (switching back restores the other panel's picks);
+      Start stores the active panel's models under the existing keys plus a new check-model key;
+      `chat.js` sends it with `/api/check`.
+      Verify: in Chrome, switching panels and refreshing keeps choices; a Claude-mode conversation
+      streams a spoken reply, shows the corrector badge, Explain/Check work; together with step
+      21's checks.
+
+- [ ] 24. Docs (`CLAUDE.md`)
       Architecture: Check is the one feature that calls out (Claude via `claude -p`), what context
       it gets, the token/`.env` setup and what breaks if it expires (Check only; rest unaffected),
       binary mount needing a container restart after a Claude Code update. Settled-decisions row:

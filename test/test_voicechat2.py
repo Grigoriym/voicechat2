@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import aiohttp
 import pytest
@@ -138,6 +139,11 @@ def test_list_models_includes_notes_and_all_defaults(voicechat2, monkeypatch):
         "default": voicechat2.LLM_MODEL,
         "grammar_default": voicechat2.GRAMMAR_CHECK_MODEL,
         "explainer_default": voicechat2.EXPLAINER_MODEL,
+        "claude_models": [
+            {"name": name, "note": note} for name, note in voicechat2.CLAUDE_MODELS.items()
+        ],
+        "claude_defaults": voicechat2.CLAUDE_DEFAULTS,
+        "check_default": voicechat2.CHECK_MODEL,
     }
 
 
@@ -1026,7 +1032,7 @@ def test_check_text_returns_none_on_nonzero_exit(voicechat2, monkeypatch):
 def test_check_text_returns_none_on_timeout(voicechat2, monkeypatch):
     proc = _FakeProc(hang=True)
     _stub_claude(voicechat2, monkeypatch, proc)
-    monkeypatch.setattr(voicechat2, "CHECK_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(voicechat2, "CLAUDE_TIMEOUT_S", 0.05)
 
     assert asyncio.run(voicechat2.check_text([{"role": "user", "content": "Hallo"}])) is None
     assert proc.killed
@@ -1048,3 +1054,128 @@ def test_check_endpoint_returns_502_on_failure(voicechat2, monkeypatch):
     response = client.post("/api/check", json={"history": [{"role": "user", "content": "Hallo"}]})
 
     assert response.status_code == 502
+
+
+def test_split_complete_sentences_splits_at_last_sentence_end_inside_text(voicechat2):
+    # Claude deltas are multi-word; a sentence end mid-chunk must still flush.
+    assert voicechat2._split_complete_sentences("Klar, gern! Was interess") == (
+        "Klar, gern!",
+        " Was interess",
+    )
+    assert voicechat2._split_complete_sentences("Hallo.") == ("Hallo.", "")
+    assert voicechat2._split_complete_sentences("Version 3.5 ist") == ("", "Version 3.5 ist")
+
+
+def test_check_grammar_routes_claude_models_through_cli(voicechat2, monkeypatch):
+    proc = _FakeProc(stdout=b"CORRECTED: Ich bin da.")
+    captured = _stub_claude(voicechat2, monkeypatch, proc)
+
+    result = asyncio.run(voicechat2.check_grammar("Ich da.", "claude:haiku"))
+
+    assert result == {"correct": False, "corrected": "Ich bin da."}
+    args = captured["args"]
+    assert args[args.index("--model") + 1] == "haiku"
+    assert proc.stdin_data == b"Ich da."
+
+
+def test_check_endpoint_rejects_non_claude_model(voicechat2):
+    client = TestClient(voicechat2.app)
+
+    response = client.post(
+        "/api/check",
+        json={"history": [{"role": "user", "content": "Hallo"}], "model": "gemma2:9b"},
+    )
+
+    assert response.status_code == 400
+
+
+class _FakeStreamProc:
+    """Stands in for a streaming `claude -p --output-format stream-json`."""
+
+    def __init__(self, lines, returncode=0):
+        self._lines = lines
+        self.returncode = returncode
+        self.stdin = self
+        self.stdout = self
+        self.stderr = self
+        self.stdin_data = b""
+
+    def write(self, data):
+        self.stdin_data += data
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        pass
+
+    def __aiter__(self):
+        async def gen():
+            for line in self._lines:
+                yield line
+
+        return gen()
+
+    async def wait(self):
+        return self.returncode
+
+    async def read(self):
+        return b"boom"
+
+
+def _delta_line(text):
+    event = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}}
+    return (json.dumps({"type": "stream_event", "event": event}) + "\n").encode()
+
+
+def test_generate_llm_response_streams_claude_and_speaks_per_sentence(voicechat2, monkeypatch):
+    lines = [
+        b'{"type": "system"}\n',
+        _delta_line("Klar, ge"),
+        _delta_line("rn! Was interess"),
+        _delta_line("iert dich?"),
+    ]
+    proc = _FakeStreamProc(lines)
+    captured = _stub_claude(voicechat2, monkeypatch, proc)
+    spoken = []
+
+    async def fake_tts(websocket, text):
+        spoken.append(text)
+
+    async def no_grammar(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(voicechat2, "generate_and_send_tts", fake_tts)
+    monkeypatch.setattr(voicechat2, "send_grammar_check", no_grammar)
+    session_id = voicechat2.conversation_manager.create_session()
+    voicechat2.conversation_manager.sessions[session_id]["model"] = "claude:sonnet"
+    voicechat2.conversation_manager.add_user_message(session_id, "Erzähl mir was!")
+    ws = _FakeWebSocket()
+
+    async def run():
+        await voicechat2.generate_llm_response(ws, session_id, "Erzähl mir was!", 0)
+        pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if pending:
+            await asyncio.gather(*pending)
+
+    asyncio.run(run())
+
+    assert spoken == ["Klar, gern!", " Was interessiert dich?"]
+    conversation = voicechat2.conversation_manager.get_conversation(session_id)
+    assert conversation[-1] == {
+        "role": "assistant",
+        "content": "Klar, gern! Was interessiert dich?",
+    }
+    assert "--system-prompt" in captured["args"]
+    sent = proc.stdin_data.decode()
+    assert "Learner: Erzähl mir was!" in sent
+
+
+def test_generate_llm_response_raises_when_claude_fails(voicechat2, monkeypatch):
+    _stub_claude(voicechat2, monkeypatch, _FakeStreamProc([], returncode=1))
+    session_id = voicechat2.conversation_manager.create_session()
+    voicechat2.conversation_manager.sessions[session_id]["model"] = "claude:sonnet"
+    voicechat2.conversation_manager.add_user_message(session_id, "Hallo")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(voicechat2.generate_llm_response(_FakeWebSocket(), session_id, "Hallo", 0))

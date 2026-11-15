@@ -42,8 +42,23 @@ EXPLAINER_MODEL = os.getenv("EXPLAINER_MODEL", "qwen2.5-coder:14b")
 # every local model benchmarked either invented mistakes in correct German
 # or explained real ones wrongly — see docs/CHECKLIST.md "Check-on-demand".
 CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
-CHECK_MODEL = os.getenv("CHECK_MODEL", "sonnet")
-CHECK_TIMEOUT_S = 90
+CLAUDE_TIMEOUT_S = 90
+
+# Claude can also serve every other role (Setup's Local/Claude switch).
+# Claude models travel through the same model strings as Ollama ones, as
+# "claude:<alias>" — set_model/set_grammar_model/explain need no new fields.
+CLAUDE_PREFIX = "claude:"
+CLAUDE_MODELS: dict[str, str] = {
+    "claude:haiku": "fastest; reply starts in ~1s",
+    "claude:sonnet": "Check default; 9/9 on the Check benchmark; reply starts in ~1.5s",
+    "claude:opus": "most capable, slowest, uses the most of your plan",
+}
+CLAUDE_DEFAULTS = {
+    "default": "claude:sonnet",
+    "grammar_default": "claude:sonnet",
+    "explainer_default": "claude:sonnet",
+}
+CHECK_MODEL = os.getenv("CHECK_MODEL", "claude:sonnet")
 
 # Free-text notes shown next to each model in the Setup screen's dropdowns —
 # past testing findings (e.g. which models are unreliable as a grammar
@@ -319,6 +334,109 @@ async def transcribe_audio(audio_data, session_id, turn_id):
         raise
 
 
+def is_claude(model: str) -> bool:
+    return model.startswith(CLAUDE_PREFIX)
+
+
+def _claude_args(model: str, system_prompt: str, stream: bool) -> list[str]:
+    # --system-prompt replaces Claude Code's own default; no tools, no saved
+    # session. Not --bare: it refuses subscription (OAuth) auth.
+    args = [CLAUDE_BIN, "-p", "--model", model.removeprefix(CLAUDE_PREFIX)]
+    args += ["--system-prompt", system_prompt, "--no-session-persistence"]
+    if stream:
+        args += ["--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+    return args + ["--tools", ""]
+
+
+async def _spawn_claude(args: list[str]):
+    return await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        # Outside the repo, so a host (non-Docker) run doesn't pick up this
+        # project's CLAUDE.md as context.
+        cwd="/tmp",
+    )
+
+
+async def _run_claude(model: str, system_prompt: str, user_text: str) -> str | None:
+    """One non-streaming `claude -p` call; None if the CLI is missing,
+    fails, or times out."""
+    try:
+        proc = await _spawn_claude(_claude_args(model, system_prompt, stream=False))
+    except OSError as e:
+        logger.error(f"Couldn't start {CLAUDE_BIN!r}: {e}")
+        return None
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(user_text.encode()), CLAUDE_TIMEOUT_S
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        logger.error(f"claude -p timed out after {CLAUDE_TIMEOUT_S}s")
+        return None
+    if proc.returncode != 0:
+        logger.error(f"claude -p exited {proc.returncode}: {stderr.decode()[-500:]}")
+        return None
+    return stdout.decode().strip()
+
+
+async def _stream_claude(model: str, system_prompt: str, user_text: str):
+    """Async generator of text deltas from one streaming `claude -p` call.
+    Raises on a missing CLI or a non-zero exit, like a failed Ollama
+    request would."""
+    proc = await _spawn_claude(_claude_args(model, system_prompt, stream=True))
+    assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+    proc.stdin.write(user_text.encode())
+    await proc.stdin.drain()
+    proc.stdin.close()
+    async for line in proc.stdout:
+        try:
+            event = json.loads(line).get("event", {})
+        except json.JSONDecodeError:
+            continue
+        delta = event.get("delta", {}) if event.get("type") == "content_block_delta" else {}
+        if delta.get("type") == "text_delta" and delta.get("text"):
+            yield delta["text"]
+    if await proc.wait() != 0:
+        stderr = (await proc.stderr.read()).decode()[-500:]
+        raise RuntimeError(f"claude -p exited {proc.returncode}: {stderr}")
+
+
+async def _ollama_complete(model: str, system_prompt: str, user_text: str) -> str | None:
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                LLM_ENDPOINT,
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_text},
+                    ],
+                    "temperature": 0,
+                    "stream": False,
+                },
+            ) as response,
+        ):
+            data = await response.json()
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"Ollama request error ({model}): {str(e)}")
+        return None
+
+
+async def complete(model: str, system_prompt: str, user_text: str) -> str | None:
+    """One-shot system+user completion on either provider (temperature 0 on
+    Ollama; the claude CLI has no temperature setting). None on failure."""
+    if is_claude(model):
+        return await _run_claude(model, system_prompt, user_text)
+    return await _ollama_complete(model, system_prompt, user_text)
+
+
 # Tuned against real-session sentences (see docs/revisit.md history): the
 # earlier "strict ... natural German" wording made gemma2:9b restyle correct
 # German ("denn" dropped, "sorry" -> "entschuldige"), add words that changed
@@ -358,26 +476,8 @@ async def check_grammar(text: str, model: str = GRAMMAR_CHECK_MODEL) -> dict | N
     "corrected": None} or {"correct": False, "corrected": "..."}, or None if
     the reply didn't parse or the request failed — the caller skips sending
     an update rather than show a wrong badge."""
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                LLM_ENDPOINT,
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": GRAMMAR_CHECK_SYSTEM_PROMPT},
-                        {"role": "user", "content": text},
-                    ],
-                    "temperature": 0,
-                    "stream": False,
-                },
-            ) as response,
-        ):
-            data = await response.json()
-        reply = data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.error(f"Grammar check error: {str(e)}")
+    reply = await complete(model, GRAMMAR_CHECK_SYSTEM_PROMPT, text)
+    if reply is None:
         return None
 
     if reply == "OK":
@@ -439,26 +539,8 @@ async def explain_text(text: str, model: str) -> dict | None:
     treating an unlabeled reply as translation-then-notes rather than
     failing on a still-useful answer (see MODEL_NOTES: several models don't
     follow the format)."""
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                LLM_ENDPOINT,
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": EXPLAIN_SYSTEM_PROMPT},
-                        {"role": "user", "content": text},
-                    ],
-                    "temperature": 0,
-                    "stream": False,
-                },
-            ) as response,
-        ):
-            data = await response.json()
-        reply = data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.error(f"Explain error: {str(e)}")
+    reply = await complete(model, EXPLAIN_SYSTEM_PROMPT, text)
+    if reply is None:
         return None
 
     if not reply:
@@ -543,47 +625,16 @@ def _parse_check_reply(reply: str) -> dict | None:
     return {"mistakes": mistakes, "corrected": corrected}
 
 
-async def check_text(history: list[dict]) -> dict | None:
+async def check_text(history: list[dict], model: str = CHECK_MODEL) -> dict | None:
     """Checks the last turn of `history` (earlier turns are context) via
-    `claude -p` on CHECK_MODEL. Returns {"mistakes": [{"wrong", "right",
-    "why"}], "corrected": "..."} or None if the CLI is missing, fails, times
-    out, or replies in an unparseable shape."""
+    `claude -p` on `model`. Returns {"mistakes": [{"wrong", "right", "why"}],
+    "corrected": "..."} or None if the CLI is missing, fails, times out, or
+    replies in an unparseable shape."""
     if not history:
         return None
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            CLAUDE_BIN,
-            "-p",
-            "--model",
-            CHECK_MODEL,
-            "--system-prompt",
-            CHECK_SYSTEM_PROMPT,
-            "--no-session-persistence",
-            "--tools",
-            "",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            # Outside the repo, so a host (non-Docker) run doesn't pick up
-            # this project's CLAUDE.md as context.
-            cwd="/tmp",
-        )
-    except OSError as e:
-        logger.error(f"Check: couldn't start {CLAUDE_BIN!r}: {e}")
+    reply = await _run_claude(model, CHECK_SYSTEM_PROMPT, _build_check_message(history))
+    if reply is None:
         return None
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(_build_check_message(history).encode()), CHECK_TIMEOUT_S
-        )
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        logger.error(f"Check: claude -p timed out after {CHECK_TIMEOUT_S}s")
-        return None
-    if proc.returncode != 0:
-        logger.error(f"Check: claude -p exited {proc.returncode}: {stderr.decode()[-500:]}")
-        return None
-    reply = stdout.decode().strip()
     result = _parse_check_reply(reply)
     if result is None:
         logger.warning(f"Check: unparseable reply: {reply!r}")
@@ -736,6 +787,66 @@ async def process_and_stream(websocket: WebSocket, session_id, text, turn_id):
         conversation_manager.sessions[session_id]["first_audio_sent"] = False
 
 
+# A sentence end is ., ! or ? followed by whitespace or the end of the text
+# so far. Claude's stream deltas are multi-word and can end mid-word, so the
+# old "does this delta end with punctuation" test would hold every sentence
+# back until a delta happened to end exactly on one.
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
+
+
+def _split_complete_sentences(text: str) -> tuple[str, str]:
+    """Splits `text` into (complete sentences, unfinished remainder)."""
+    ends = [m.end() for m in _SENTENCE_END.finditer(text)]
+    if not ends:
+        return "", text
+    return text[: ends[-1]], text[ends[-1] :]
+
+
+async def _ollama_deltas(model: str, conversation: list[dict]):
+    """Async generator of text deltas from Ollama's streaming
+    OpenAI-compatible endpoint."""
+    async with (
+        aiohttp.ClientSession() as session,
+        session.post(
+            LLM_ENDPOINT, json={"model": model, "messages": conversation, "stream": True}
+        ) as response,
+    ):
+        async for line in response.content:
+            line_text = line.decode("utf-8").strip()
+            if not line_text.startswith("data: "):
+                continue
+            data_str = line_text[6:]
+            if data_str.lower() == "[done]":
+                break
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse JSON: {line_text}")
+                continue
+            if data.get("choices"):
+                content = data["choices"][0]["delta"].get("content", "")
+                if content:
+                    yield content
+
+
+def _claude_conversation_input(conversation: list[dict]) -> tuple[str, str]:
+    """(system prompt, user text) for one `claude -p` call: `claude -p`
+    takes a single prompt, not a message list, so earlier turns go in as a
+    labeled transcript."""
+    system = "\n\n".join(m["content"] for m in conversation if m["role"] == "system")
+    lines = [
+        f"{'Learner' if m['role'] == 'user' else 'You'}: {m['content']}"
+        for m in conversation
+        if m["role"] != "system"
+    ]
+    text = (
+        "Conversation so far:\n"
+        + "\n".join(lines)
+        + "\n\nWrite your next reply to the learner: only the reply itself, no speaker label."
+    )
+    return system, text
+
+
 async def generate_llm_response(websocket, session_id, text, turn_id):
     conversation_manager.update_latency_metric(session_id, "llm_start", time.time())
     try:
@@ -743,102 +854,68 @@ async def generate_llm_response(websocket, session_id, text, turn_id):
         # caller via add_user_message before process_and_stream was invoked)
         conversation = conversation_manager.get_conversation(session_id)
         model = conversation_manager.sessions[session_id]["model"]
+        if is_claude(model):
+            deltas = _stream_claude(model, *_claude_conversation_input(conversation))
+        else:
+            deltas = _ollama_deltas(model, conversation)
 
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                LLM_ENDPOINT, json={"model": model, "messages": conversation, "stream": True}
-            ) as response,
-        ):
-            complete_text = ""
-            accumulated_text = ""
-            first_token_received = False
-            first_sentence_received = False
-            async for line in response.content:
-                if line:
-                    try:
-                        line_text = line.decode("utf-8").strip()
-                        if line_text.startswith("data: "):
-                            data_str = line_text[6:]
-                            if data_str.lower() == "[done]":
-                                break
-                            data = json.loads(data_str)
-                            if "choices" in data and len(data["choices"]) > 0:
-                                content = data["choices"][0]["delta"].get("content", "")
-                                if content:
-                                    if not first_token_received:
-                                        conversation_manager.update_latency_metric(
-                                            session_id, "llm_first_token", time.time()
-                                        )
-                                        first_token_received = True
-                                    complete_text += content
-                                    accumulated_text += content
-                                    await websocket.send_json({"type": "text", "content": content})
+        complete_text = ""
+        accumulated_text = ""
+        first_token_received = False
+        first_sentence_received = False
 
-                                    # Check if we have a complete sentence
-                                    if content.endswith((".", "!", "?")):
-                                        if not first_sentence_received:
-                                            conversation_manager.update_latency_metric(
-                                                session_id, "llm_first_sentence", time.time()
-                                            )
-                                            first_sentence_received = True
-                                            conversation_manager.update_latency_metric(
-                                                session_id, "tts_start", time.time()
-                                            )
-                                        await generate_and_send_tts(websocket, accumulated_text)
-                                        accumulated_text = ""
-
-                                        if not conversation_manager.sessions[session_id][
-                                            "first_audio_sent"
-                                        ]:
-                                            logger.debug("first_audio_response")
-                                            conversation_manager.update_latency_metric(
-                                                session_id, "first_audio_response", time.time()
-                                            )
-                                            await websocket.send_json(
-                                                {"type": "first_audio_response"}
-                                            )
-                                            conversation_manager.sessions[session_id][
-                                                "first_audio_sent"
-                                            ] = True
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse JSON: {line_text}")
-                    except Exception as e:
-                        logger.error(f"Error processing line: {e}")
-
-            # Send any remaining text
-            if accumulated_text:
-                logger.debug(f"Remaining text: {accumulated_text}")
-                if not first_sentence_received:
-                    conversation_manager.update_latency_metric(
-                        session_id, "llm_first_sentence", time.time()
-                    )
-                    first_sentence_received = True
-                    conversation_manager.update_latency_metric(session_id, "tts_start", time.time())
-                await generate_and_send_tts(websocket, accumulated_text)
-
-                if not conversation_manager.sessions[session_id]["first_audio_sent"]:
-                    logger.debug("first_audio_response")
-                    conversation_manager.update_latency_metric(
-                        session_id, "first_audio_response", time.time()
-                    )
-                    await websocket.send_json({"type": "first_audio_response"})
-                    conversation_manager.sessions[session_id]["first_audio_sent"] = True
-
-            # Finished sending TTS
-            conversation_manager.update_latency_metric(session_id, "tts_end", time.time())
-
-            conversation_manager.add_ai_message(session_id, complete_text)
-            logger.debug(complete_text)
-            asyncio.create_task(
-                send_grammar_check(
-                    websocket,
-                    "assistant",
-                    turn_id,
-                    complete_text,
-                    conversation_manager.sessions[session_id]["grammar_model"],
+        async def speak(sentences: str):
+            nonlocal first_sentence_received
+            if not first_sentence_received:
+                conversation_manager.update_latency_metric(
+                    session_id, "llm_first_sentence", time.time()
                 )
+                first_sentence_received = True
+                conversation_manager.update_latency_metric(session_id, "tts_start", time.time())
+            await generate_and_send_tts(websocket, sentences)
+            if not conversation_manager.sessions[session_id]["first_audio_sent"]:
+                logger.debug("first_audio_response")
+                conversation_manager.update_latency_metric(
+                    session_id, "first_audio_response", time.time()
+                )
+                await websocket.send_json({"type": "first_audio_response"})
+                conversation_manager.sessions[session_id]["first_audio_sent"] = True
+
+        async for content in deltas:
+            try:
+                if not first_token_received:
+                    conversation_manager.update_latency_metric(
+                        session_id, "llm_first_token", time.time()
+                    )
+                    first_token_received = True
+                complete_text += content
+                accumulated_text += content
+                await websocket.send_json({"type": "text", "content": content})
+                ready, accumulated_text = _split_complete_sentences(accumulated_text)
+                if ready:
+                    await speak(ready)
+            except Exception as e:
+                logger.error(f"Error processing chunk: {e}")
+
+        # Send any remaining text
+        if accumulated_text:
+            logger.debug(f"Remaining text: {accumulated_text}")
+            await speak(accumulated_text)
+
+        # Finished sending TTS
+        conversation_manager.update_latency_metric(session_id, "tts_end", time.time())
+
+        conversation_manager.add_ai_message(session_id, complete_text)
+        logger.debug(complete_text)
+        asyncio.create_task(
+            send_grammar_check(
+                websocket,
+                "assistant",
+                turn_id,
+                complete_text,
+                conversation_manager.sessions[session_id]["grammar_model"],
             )
+        )
 
     except Exception as e:
         logger.error(f"LLM error: {str(e)}")
@@ -874,6 +951,9 @@ async def list_models():
         "default": LLM_MODEL,
         "grammar_default": GRAMMAR_CHECK_MODEL,
         "explainer_default": EXPLAINER_MODEL,
+        "claude_models": [{"name": name, "note": note} for name, note in CLAUDE_MODELS.items()],
+        "claude_defaults": CLAUDE_DEFAULTS,
+        "check_default": CHECK_MODEL,
     }
 
 
@@ -884,11 +964,14 @@ class CheckTurn(BaseModel):
 
 class CheckRequest(BaseModel):
     history: list[CheckTurn]
+    model: str = CHECK_MODEL
 
 
 @app.post("/api/check")
 async def check(req: CheckRequest):
-    result = await check_text([t.model_dump() for t in req.history])
+    if not is_claude(req.model):
+        raise HTTPException(status_code=400, detail="Check only runs on Claude models")
+    result = await check_text([t.model_dump() for t in req.history], req.model)
     if result is None:
         raise HTTPException(status_code=502, detail="Couldn't get a check result from Claude")
     return result
