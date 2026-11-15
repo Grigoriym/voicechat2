@@ -42,27 +42,66 @@
                 <div class="card-header">
                     <h2>Model</h2>
                 </div>
-                <div class="model-group">
-                    <label for="modelSelect">Conversation model</label>
-                    <div class="model-row">
-                        <select id="modelSelect"><option>loading…</option></select>
-                        <button id="unloadModelBtn" class="btn-secondary" type="button">Free GPU memory</button>
-                    </div>
-                    <span id="modelStatus" class="status-hint"></span>
+                <div class="provider-switch" role="radiogroup" aria-label="Model provider">
+                    <label><input type="radio" name="provider" value="local"> Local (Ollama)</label>
+                    <label><input type="radio" name="provider" value="claude"> Claude (your subscription)</label>
                 </div>
-                <div class="model-group">
-                    <label for="grammarModelSelect">Grammar corrector model</label>
-                    <div class="model-row">
-                        <select id="grammarModelSelect"><option>loading…</option></select>
+
+                <div id="localPanel" class="model-panel">
+                    <div class="model-group">
+                        <label for="modelSelect">Conversation model</label>
+                        <div class="model-row">
+                            <select id="modelSelect"><option>loading…</option></select>
+                            <button id="unloadModelBtn" class="btn-secondary" type="button">Free GPU memory</button>
+                        </div>
+                        <span id="modelStatus" class="status-hint"></span>
                     </div>
-                    <span id="grammarModelStatus" class="status-hint"></span>
+                    <div class="model-group">
+                        <label for="grammarModelSelect">Grammar corrector model</label>
+                        <div class="model-row">
+                            <select id="grammarModelSelect"><option>loading…</option></select>
+                        </div>
+                        <span id="grammarModelStatus" class="status-hint"></span>
+                    </div>
+                    <div class="model-group">
+                        <label for="explainerModelSelect">Explainer model</label>
+                        <div class="model-row">
+                            <select id="explainerModelSelect"><option>loading…</option></select>
+                        </div>
+                        <span id="explainerModelStatus" class="status-hint"></span>
+                    </div>
                 </div>
-                <div class="model-group">
-                    <label for="explainerModelSelect">Explainer model</label>
-                    <div class="model-row">
-                        <select id="explainerModelSelect"><option>loading…</option></select>
+
+                <div id="claudePanel" class="model-panel" hidden>
+                    <div class="model-group">
+                        <label for="claudeModelSelect">Conversation model</label>
+                        <div class="model-row">
+                            <select id="claudeModelSelect"><option>loading…</option></select>
+                        </div>
+                        <span id="claudeModelStatus" class="status-hint"></span>
                     </div>
-                    <span id="explainerModelStatus" class="status-hint"></span>
+                    <div class="model-group">
+                        <label for="claudeGrammarModelSelect">Grammar corrector model</label>
+                        <div class="model-row">
+                            <select id="claudeGrammarModelSelect"><option>loading…</option></select>
+                        </div>
+                        <span id="claudeGrammarModelStatus" class="status-hint"></span>
+                    </div>
+                    <div class="model-group">
+                        <label for="claudeExplainerModelSelect">Explainer model</label>
+                        <div class="model-row">
+                            <select id="claudeExplainerModelSelect"><option>loading…</option></select>
+                        </div>
+                        <span id="claudeExplainerModelStatus" class="status-hint"></span>
+                    </div>
+                </div>
+
+                <div class="model-group check-model-group">
+                    <label for="checkModelSelect">Check model (always Claude)</label>
+                    <div class="model-row">
+                        <select id="checkModelSelect"><option>loading…</option></select>
+                    </div>
+                    <span id="checkModelStatus" class="status-hint"></span>
                 </div>
             </div>
 

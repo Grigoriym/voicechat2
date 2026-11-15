@@ -1,23 +1,52 @@
 // Setup screen wiring (ui/index.html). Populates scenarios and models,
 // handles scenario create/clone/edit/delete, runs the health checks
 // (including a getUserMedia mic-permission probe with a live level meter),
-// and on Start stores the chosen scenario id + conversation model + grammar
-// corrector model + explainer model in sessionStorage before navigating to
-// chat.html. Also mirrored into localStorage, so the last-used choices
-// pre-select themselves on a fresh visit (e.g. after a browser restart,
-// when sessionStorage is empty) instead of falling back to the server's
-// bare defaults every time.
+// and on Start stores the chosen scenario id + the active panel's (Local or
+// Claude) conversation / grammar corrector / explainer models + the Check
+// model in sessionStorage before navigating to chat.html. Every choice is
+// also saved to localStorage as soon as it's made, so the last-used choices
+// pre-select themselves on a fresh visit instead of falling back to the
+// server's bare defaults.
 
 const SCENARIO_STORAGE_KEY = "vc2-scenario";
 const MODEL_STORAGE_KEY = "vc2-model";
 const GRAMMAR_MODEL_STORAGE_KEY = "vc2-grammar-model";
 const EXPLAINER_MODEL_STORAGE_KEY = "vc2-explainer-model";
+const CHECK_MODEL_STORAGE_KEY = "vc2-check-model";
+const PROVIDER_STORAGE_KEY = "vc2-provider";
+
+// The three roles each panel (Local / Claude) picks a model for. `key` is
+// what chat.js reads from sessionStorage — Start writes the active panel's
+// picks there. Each panel also remembers its own picks in localStorage, so
+// switching panels back and forth (or restarting the browser) keeps both:
+// the Local panel under the original keys (so picks saved before the
+// Claude panel existed carry over), the Claude panel under "vc2-claude-*".
+const ROLES = [
+    { key: MODEL_STORAGE_KEY, defaultKey: "default", local: "modelSelect", claude: "claudeModelSelect" },
+    {
+        key: GRAMMAR_MODEL_STORAGE_KEY,
+        defaultKey: "grammar_default",
+        local: "grammarModelSelect",
+        claude: "claudeGrammarModelSelect",
+    },
+    {
+        key: EXPLAINER_MODEL_STORAGE_KEY,
+        defaultKey: "explainer_default",
+        local: "explainerModelSelect",
+        claude: "claudeExplainerModelSelect",
+    },
+];
+
+function panelStorageKey(provider, role) {
+    return provider === "local" ? role.key : role.key.replace("vc2-", "vc2-claude-");
+}
 
 let scenarios = [];
 let selectedScenarioId = null;
-let selectedModel = null;
-let selectedGrammarModel = null;
-let selectedExplainerModel = null;
+let provider = "local";
+// picks[provider][role.key] = model name; checkModel is shared by both.
+const picks = { local: {}, claude: {} };
+let checkModel = null;
 
 let formMode = null; // "create" | "clone" | "edit" | null
 let formEditingId = null;
@@ -35,9 +64,8 @@ function slugify(text) {
 function updateStartButton() {
     document.getElementById("startBtn").disabled = !(
         selectedScenarioId &&
-        selectedModel &&
-        selectedGrammarModel &&
-        selectedExplainerModel
+        ROLES.every((role) => picks[provider][role.key]) &&
+        checkModel
     );
 }
 
@@ -209,88 +237,95 @@ async function deleteScenario(scenario) {
 
 // ---- Model ----
 
-// Populates the conversation-model, grammar-corrector-model, and
-// explainer-model dropdowns from the same /api/models list. Each option's
-// note (past testing findings, e.g. "weak as grammar corrector") is
-// appended to its label so it's visible without hovering, since it's meant
-// to jog memory while picking, not just be discoverable on demand.
-async function loadModels() {
-    const pickers = [
-        {
-            select: document.getElementById("modelSelect"),
-            statusId: "modelStatus",
-            storageKey: MODEL_STORAGE_KEY,
-            defaultKey: "default",
-            get: () => selectedModel,
-            set: (v) => {
-                selectedModel = v;
-            },
-        },
-        {
-            select: document.getElementById("grammarModelSelect"),
-            statusId: "grammarModelStatus",
-            storageKey: GRAMMAR_MODEL_STORAGE_KEY,
-            defaultKey: "grammar_default",
-            get: () => selectedGrammarModel,
-            set: (v) => {
-                selectedGrammarModel = v;
-            },
-        },
-        {
-            select: document.getElementById("explainerModelSelect"),
-            statusId: "explainerModelStatus",
-            storageKey: EXPLAINER_MODEL_STORAGE_KEY,
-            defaultKey: "explainer_default",
-            get: () => selectedExplainerModel,
-            set: (v) => {
-                selectedExplainerModel = v;
-            },
-        },
-    ];
+function showProvider() {
+    document.getElementById("localPanel").hidden = provider !== "local";
+    document.getElementById("claudePanel").hidden = provider !== "claude";
+    for (const radio of document.querySelectorAll('input[name="provider"]')) {
+        radio.checked = radio.value === provider;
+    }
+}
 
+// Fills one dropdown from `models` ({name, note}), selecting `current` if
+// it's still in the list, else `fallback`. Each option's note (past testing
+// findings) is appended to its label so it's visible while picking. Returns
+// the selected name.
+function fillSelect(select, models, current, fallback) {
+    const names = models.map((m) => m.name);
+    const chosen = current && names.includes(current) ? current : fallback;
+    select.innerHTML = "";
+    for (const model of models) {
+        const opt = document.createElement("option");
+        opt.value = model.name;
+        opt.textContent = model.note ? `${model.name} — ${model.note}` : model.name;
+        if (model.name === chosen) opt.selected = true;
+        select.appendChild(opt);
+    }
+    return chosen;
+}
+
+// Wires a dropdown to save its pick immediately (not only on Start), so a
+// refresh keeps it, and pauses the mic meter while its popup is open (see
+// CLAUDE.md Gotchas: the meter's per-frame repaint dismissed the popup).
+function watchSelect(select, storageKey, onPick) {
+    select.addEventListener("change", () => {
+        if (select.value) {
+            onPick(select.value);
+            localStorage.setItem(storageKey, select.value);
+        }
+        updateStartButton();
+    });
+    select.addEventListener("focus", pauseMicMeter);
+    select.addEventListener("blur", resumeMicMeter);
+}
+
+async function loadModels() {
     try {
         const resp = await fetch("/api/models");
         const data = await resp.json();
-        const names = data.models.map((m) => m.name);
-
-        for (const picker of pickers) {
-            if (!picker.get() || !names.includes(picker.get())) {
-                picker.set(data[picker.defaultKey]);
+        for (const role of ROLES) {
+            for (const [panel, models, defaults] of [
+                ["local", data.models, data],
+                ["claude", data.claude_models, data.claude_defaults],
+            ]) {
+                const storageKey = panelStorageKey(panel, role);
+                picks[panel][role.key] = fillSelect(
+                    document.getElementById(role[panel]),
+                    models,
+                    localStorage.getItem(storageKey),
+                    defaults[role.defaultKey]
+                );
             }
-            picker.select.innerHTML = "";
-            for (const model of data.models) {
-                const opt = document.createElement("option");
-                opt.value = model.name;
-                opt.textContent = model.note ? `${model.name} — ${model.note}` : model.name;
-                if (model.name === picker.get()) opt.selected = true;
-                picker.select.appendChild(opt);
-            }
-            // Was "active: <server default>", which read as the current
-            // choice and contradicted the dropdown. The dropdown is the
-            // source of truth; this line is only for load errors now.
-            document.getElementById(picker.statusId).textContent = "";
         }
+        checkModel = fillSelect(
+            document.getElementById("checkModelSelect"),
+            data.claude_models,
+            localStorage.getItem(CHECK_MODEL_STORAGE_KEY),
+            data.check_default
+        );
     } catch (error) {
-        for (const picker of pickers) {
-            picker.select.innerHTML = '<option value="">(model list unavailable)</option>';
-            document.getElementById(picker.statusId).textContent = `Error: ${error.message}`;
+        for (const id of ["modelStatus", "claudeModelStatus", "checkModelStatus"]) {
+            document.getElementById(id).textContent = `Error loading models: ${error.message}`;
         }
     }
     updateStartButton();
 
-    for (const picker of pickers) {
-        picker.select.addEventListener("change", () => {
-            picker.set(picker.select.value || null);
-            // Saved immediately, not only on Start, so a refresh keeps the
-            // choice instead of reverting to the last-started one.
-            if (picker.select.value) {
-                sessionStorage.setItem(picker.storageKey, picker.select.value);
-                localStorage.setItem(picker.storageKey, picker.select.value);
-            }
+    for (const role of ROLES) {
+        for (const panel of ["local", "claude"]) {
+            watchSelect(document.getElementById(role[panel]), panelStorageKey(panel, role), (v) => {
+                picks[panel][role.key] = v;
+            });
+        }
+    }
+    watchSelect(document.getElementById("checkModelSelect"), CHECK_MODEL_STORAGE_KEY, (v) => {
+        checkModel = v;
+    });
+    for (const radio of document.querySelectorAll('input[name="provider"]')) {
+        radio.addEventListener("change", () => {
+            provider = radio.value;
+            localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
+            showProvider();
             updateStartButton();
         });
-        picker.select.addEventListener("focus", pauseMicMeter);
-        picker.select.addEventListener("blur", resumeMicMeter);
     }
 }
 
@@ -424,12 +459,8 @@ async function initMic() {
 
 document.addEventListener("DOMContentLoaded", () => {
     selectedScenarioId = sessionStorage.getItem(SCENARIO_STORAGE_KEY) ?? localStorage.getItem(SCENARIO_STORAGE_KEY);
-    selectedModel = sessionStorage.getItem(MODEL_STORAGE_KEY) ?? localStorage.getItem(MODEL_STORAGE_KEY);
-    selectedGrammarModel =
-        sessionStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY) ?? localStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY);
-    selectedExplainerModel =
-        sessionStorage.getItem(EXPLAINER_MODEL_STORAGE_KEY) ??
-        localStorage.getItem(EXPLAINER_MODEL_STORAGE_KEY);
+    provider = localStorage.getItem(PROVIDER_STORAGE_KEY) === "claude" ? "claude" : "local";
+    showProvider();
 
     loadScenarios();
     loadModels();
@@ -448,13 +479,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("startBtn").addEventListener("click", () => {
         sessionStorage.setItem(SCENARIO_STORAGE_KEY, selectedScenarioId);
-        sessionStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
-        sessionStorage.setItem(GRAMMAR_MODEL_STORAGE_KEY, selectedGrammarModel);
-        sessionStorage.setItem(EXPLAINER_MODEL_STORAGE_KEY, selectedExplainerModel);
         localStorage.setItem(SCENARIO_STORAGE_KEY, selectedScenarioId);
-        localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
-        localStorage.setItem(GRAMMAR_MODEL_STORAGE_KEY, selectedGrammarModel);
-        localStorage.setItem(EXPLAINER_MODEL_STORAGE_KEY, selectedExplainerModel);
+        // The active panel's picks become what chat.js uses; also saved as
+        // that panel's picks, in case they were untouched server defaults.
+        for (const role of ROLES) {
+            const model = picks[provider][role.key];
+            sessionStorage.setItem(role.key, model);
+            localStorage.setItem(panelStorageKey(provider, role), model);
+        }
+        sessionStorage.setItem(CHECK_MODEL_STORAGE_KEY, checkModel);
+        localStorage.setItem(CHECK_MODEL_STORAGE_KEY, checkModel);
+        localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
         window.location.href = "chat.html";
     });
 

@@ -188,3 +188,25 @@
     font-size: 1.1rem;
     padding: 0.9rem 1rem;
 }
+
+/* Local/Claude switch above the two model panels; only the chosen panel
+   is shown. The Check dropdown sits below both (Check is always Claude). */
+.provider-switch {
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+
+.provider-switch label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    cursor: pointer;
+}
+
+.check-model-group {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+}

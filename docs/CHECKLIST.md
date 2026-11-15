@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 3/6 — Current step: 23 (21 awaits browser verification, done with 23)
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 5/6 — Current step: 24
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -636,13 +636,15 @@ Prompt (validated, see the benchmark above; the conversation-context wrapper is 
       `.env` token is the only auth path. Verified: two-turn "ihn → es" history returned the parsed
       result from the container in 2.8s.
 
-- [ ] 21. Front-end Check button (`ui/js/chat.js`, `ui/css/chat.css`)
+- [x] 21. Front-end Check button (`ui/js/chat.js`, `ui/css/chat.css`)
       Keep a client-side transcript (`{role, content}` per finished bubble, in order). Add a Check
       button to `addHelpButtons`; on click, POST the transcript up to and including that bubble,
       then render "✓ No mistakes" or one line per mistake (`wrong → right — why`) plus the
       corrected line; retry label on failure, like Translate/Explain.
       Verify: in Chrome, Check on a correct AI line shows no mistakes, and on a wrong user line
       shows the mistake list.
+      Note: verified together with step 23 (see there); the extension was disconnected when this
+      step was first built.
 
 - [x] 22. Claude as a model provider for every role (`voicechat2.py`)
       Decided 2026-11-15 (user): **one Local/Claude switch on Setup picks the provider for all
@@ -674,7 +676,7 @@ Prompt (validated, see the benchmark above; the conversation-context wrapper is 
       word-order / lowercase-transcript sentences; Explain Sonnet translated the confusing
       "Hast du davon eine besonders gerne benutzt?" correctly (local models hadn't).
 
-- [ ] 23. Setup screen: Local/Claude switch + two panels + Check model (`ui/index.html`,
+- [x] 23. Setup screen: Local/Claude switch + two panels + Check model (`ui/index.html`,
       `ui/js/setup.js`, `ui/js/chat.js`)
       A provider radio; Local panel = the three existing Ollama dropdowns; Claude panel = the same
       three roles over `claude_models`; a Check dropdown (Claude models) shown in both modes.
@@ -684,6 +686,16 @@ Prompt (validated, see the benchmark above; the conversation-context wrapper is 
       Verify: in Chrome, switching panels and refreshing keeps choices; a Claude-mode conversation
       streams a spoken reply, shows the corrector badge, Explain/Check work; together with step
       21's checks.
+      Note: the Check dropdown sits below both panels (labelled "always Claude") rather than inside
+      the Claude panel as in the agreed mockup — Check runs on Claude in Local mode too, so it has
+      to stay visible there. Local picks keep the original storage keys so earlier choices carried
+      over; the Claude panel uses `vc2-claude-*`. Verified in Chrome: Local picks carried over;
+      switching to Claude shows its panel; a changed Claude pick and the provider survived a hard
+      reload; a Claude-mode conversation (haiku) streamed a spoken reply (Repeat present), the
+      Sonnet corrector flagged the user line; Check on the user line listed "Was kannst du →
+      Kannst du" and "interessantes → Interessantes" with correct explanations; Check on the AI
+      line showed "✓ No mistakes"; Translate worked. Restored the user's saved provider/picks
+      afterwards.
 
 - [ ] 24. Docs (`CLAUDE.md`)
       Architecture: Check is the one feature that calls out (Claude via `claude -p`), what context

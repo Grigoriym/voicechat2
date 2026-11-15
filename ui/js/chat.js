@@ -9,13 +9,15 @@ const SCENARIO_STORAGE_KEY = "vc2-scenario";
 const MODEL_STORAGE_KEY = "vc2-model";
 const GRAMMAR_MODEL_STORAGE_KEY = "vc2-grammar-model";
 const EXPLAINER_MODEL_STORAGE_KEY = "vc2-explainer-model";
+const CHECK_MODEL_STORAGE_KEY = "vc2-check-model";
 
 const scenarioId = sessionStorage.getItem(SCENARIO_STORAGE_KEY);
 const modelId = sessionStorage.getItem(MODEL_STORAGE_KEY);
 const grammarModelId = sessionStorage.getItem(GRAMMAR_MODEL_STORAGE_KEY);
 const explainerModelId = sessionStorage.getItem(EXPLAINER_MODEL_STORAGE_KEY);
+const checkModelId = sessionStorage.getItem(CHECK_MODEL_STORAGE_KEY);
 
-if (!scenarioId || !modelId || !grammarModelId || !explainerModelId) {
+if (!scenarioId || !modelId || !grammarModelId || !explainerModelId || !checkModelId) {
     // No choice made yet (e.g. a direct/bookmarked visit) — send the user
     // back to Setup rather than starting a conversation with nothing set.
     window.location.href = "/";
@@ -71,6 +73,9 @@ let currentTurn = null;
 // TTS audio blobs received for the AI reply currently streaming in, kept so
 // its bubble's Repeat button can replay them once the turn completes.
 let currentAIAudio = [];
+// Finished turns in order, as {role, content} — what Check sends as the
+// conversation context (everything up to and including the clicked bubble).
+const transcript = [];
 
 // Chat bubbles, keyed by `${turn}-${role}` (role matches the server's
 // grammar_check "user"/"assistant", not the display label) so a later
@@ -91,11 +96,11 @@ async function initActiveContextDisplay() {
         const scenario = data.scenarios.find((s) => s.id === scenarioId);
         el.textContent =
             `scenario: ${scenario ? scenario.label : scenarioId} · model: ${modelId} · ` +
-            `corrector: ${grammarModelId} · explainer: ${explainerModelId}`;
+            `corrector: ${grammarModelId} · explainer: ${explainerModelId} · check: ${checkModelId}`;
     } catch (error) {
         el.textContent =
             `scenario: ${scenarioId} · model: ${modelId} · corrector: ${grammarModelId} · ` +
-            `explainer: ${explainerModelId}`;
+            `explainer: ${explainerModelId} · check: ${checkModelId}`;
         log(`Error loading scenario label: ${error.message}`);
     }
 }
@@ -619,7 +624,13 @@ function initializeWebSocketAsync() {
                             const cursor = aiMessageElement.querySelector(".ai-cursor");
                             if (cursor) cursor.remove();
                             if (currentAIResponse) {
-                                addHelpButtons(aiMessageElement, currentAIResponse, currentAIAudio);
+                                transcript.push({ role: "assistant", content: currentAIResponse });
+                                addHelpButtons(
+                                    aiMessageElement,
+                                    currentAIResponse,
+                                    currentAIAudio,
+                                    transcript.length
+                                );
                             }
                         }
                     } else if (message.type === "error") {
@@ -662,19 +673,22 @@ function displayMessage(role, content, turn) {
     // which streams in) — its Translate/Explain buttons can go on right away
     // instead of waiting for processing_complete.
     if (role === "user") {
-        addHelpButtons(messageElement, content);
+        transcript.push({ role: "user", content });
+        addHelpButtons(messageElement, content, null, transcript.length);
     }
     conversationLog.appendChild(messageElement);
     conversationLog.scrollTop = conversationLog.scrollHeight;
     return messageElement;
 }
 
-// Adds Translate / Explain buttons to a chat bubble, plus Repeat when the
-// bubble has TTS audio (AI replies). Translate and Explain share one
-// /api/explain request (using the Setup screen's chosen explainer model),
-// fetched on whichever is clicked first and reused by the other; each
-// button shows only its half of the result.
-function addHelpButtons(element, text, audioBlobs) {
+// Adds Translate / Explain / Check buttons to a chat bubble, plus Repeat
+// when the bubble has TTS audio (AI replies). Translate and Explain share
+// one /api/explain request (using the Setup screen's chosen explainer
+// model), fetched on whichever is clicked first and reused by the other;
+// each button shows only its half of the result. Check sends the first
+// `transcriptLength` turns of the transcript (this bubble is the last) to
+// /api/check, which runs Claude.
+function addHelpButtons(element, text, audioBlobs, transcriptLength) {
     const bar = document.createElement("span");
     bar.className = "help-buttons";
     let explainRequest = null;
@@ -717,9 +731,59 @@ function addHelpButtons(element, text, audioBlobs) {
             "explain-notes"
         )
     );
+    const history = transcript.slice(0, transcriptLength);
+    const checkBtn = makeHelpButton("Check", () => runCheck(element, checkBtn, history));
     bar.appendChild(translateBtn);
     bar.appendChild(explainBtn);
+    bar.appendChild(checkBtn);
     element.appendChild(bar);
+}
+
+async function runCheck(element, btn, history) {
+    btn.disabled = true;
+    btn.textContent = "Check…";
+    try {
+        const resp = await fetch("/api/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ history, model: checkModelId }),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+        const data = await resp.json();
+
+        const result = document.createElement("div");
+        result.className = "check-result";
+        if (data.mistakes.length === 0) {
+            const ok = document.createElement("div");
+            ok.className = "check-ok";
+            ok.textContent = "✓ No mistakes";
+            result.appendChild(ok);
+        } else {
+            for (const m of data.mistakes) {
+                const line = document.createElement("div");
+                line.className = "check-mistake";
+                if (m.wrong && m.right) {
+                    const fix = document.createElement("strong");
+                    fix.textContent = `${m.wrong} → ${m.right}`;
+                    line.appendChild(fix);
+                    line.appendChild(document.createTextNode(` — ${m.why}`));
+                } else {
+                    line.textContent = m.why;
+                }
+                result.appendChild(line);
+            }
+            const corrected = document.createElement("div");
+            corrected.className = "check-corrected";
+            corrected.textContent = `Corrected: ${data.corrected}`;
+            result.appendChild(corrected);
+        }
+        element.appendChild(result);
+        btn.remove();
+    } catch (error) {
+        btn.disabled = false;
+        btn.textContent = "Check (retry)";
+        log(`Check failed: ${error.message}`);
+    }
 }
 
 function makeHelpButton(label, onClick) {
