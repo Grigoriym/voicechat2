@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done) — Current step: none
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 1/4 — Current step: 20
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -566,3 +566,81 @@ and blank-text-sends-error) all green. Manually verified via Chrome automation a
 path still fully works (both Enter and the Send button), through the actual UI, not just a console
 bypass — round-tripped a typed German message through transcription echo, grammar-check, and a full
 LLM reply with its own grammar-check and Explain button.
+
+## Check-on-demand via Claude (2026-11-15)
+
+Goal: a **Check** button on every chat bubble (next to Translate/Explain) that returns each real
+mistake with a one-line English explanation, plus the corrected line — reliable enough to learn
+from, which the automatic ✓/"corrected" badge is not. Decided up front (2026-11-15), don't
+re-litigate:
+
+- **Claude Sonnet via `claude -p`, on the user's own subscription** — not the Anthropic API (no
+  separate billing account) and not a local model. Benchmarked on 9 real-session sentences with the
+  same prompt: gemma3:12b 7/9, qwen2.5-coder:14b 6/9, gemma2:9b 5/9, mistral-nemo:12b 5/9 — all
+  either invented mistakes in correct German or gave wrong explanations; Haiku 7/9 (missed "Was …
+  etwas", invented one); **Sonnet 9/9 with correct explanations, 2–4.5s per call.** The only part
+  of the app that leaves the machine, and only on click; the user accepted that.
+- **Check gets the conversation so far** (scenario-free: just the turns up to and including the
+  clicked one), told to check only the last line. The user wants the checker to know the context;
+  the automatic badge and Translate/Explain stay one-sentence-only (user's call).
+- **Isolation flags:** `--system-prompt` (replaces Claude Code's default), `--tools ""`,
+  `--no-session-persistence`, input via stdin. Not `--bare`: it refuses subscription (OAuth) auth.
+- **Auth for the container:** a long-lived token from `claude setup-token` (the user runs it and
+  puts it in the git-ignored `.env` as `CLAUDE_CODE_OAUTH_TOKEN`), not the interactive login,
+  which expires within days. The `claude` binary is bind-mounted read-only like Piper.
+
+Prompt (validated, see the benchmark above; the conversation-context wrapper is new in step 19):
+
+    You are a German teacher checking one utterance written or spoken by a learner. It may be a
+    speech-to-text transcript. Go through it carefully and find every real mistake: grammar, word
+    order, gender, case, conjugation, a wrong or extra word, a misspelling, or a sentence that does
+    not make sense as German. Ignore capitalization and punctuation. Do not count style or word
+    choice as a mistake when the German is already correct and natural; particles like "denn",
+    "doch", "mal" are fine. Reply in this exact format and nothing else:
+    Mistakes:
+    - <wrong part> → <correct part>: <one short sentence in English explaining why>
+    (one line per mistake, or the single line "- none")
+    Corrected: <the full corrected utterance, or the original unchanged if there are no mistakes>
+
+## Check steps
+
+- [x] 19. `check_text()` + `POST /api/check` (`voicechat2.py`)
+      `check_text(history: list[{role, content}]) -> dict | None`: builds the user message from the
+      history (earlier turns as context, last turn marked as the one to check), runs `claude -p
+      --model $CHECK_MODEL` (env, default `sonnet`) with the prompt above via
+      `asyncio.create_subprocess_exec`, stdin input, a timeout, and parses the reply into
+      `{"mistakes": [{"wrong", "right", "why"}], "corrected": "..."}` (`- none` → empty list).
+      Returns `None` on non-zero exit, timeout, missing binary, or unparseable reply. Endpoint takes
+      `{"history": [...]}`, 502 on `None`. `CLAUDE_BIN` env (default `claude`).
+      Verify: pytest with the subprocess stubbed — mistakes case, none case, unparseable, non-zero
+      exit, timeout — plus one real run on the host against the "Was … etwas" sentence with a
+      context turn.
+      Note: added one sentence to the validated prompt telling it the conversation is context only.
+      Mistake lines that miss the `a → b: why` shape are kept as `{wrong: None, right: None, why}`
+      rather than dropped. `cwd="/tmp"` so a host (non-Docker) run doesn't load this repo's
+      CLAUDE.md. 8 pytest cases (stubbed subprocess); 73 passed, all hooks green. Real host runs
+      (~3s each): caught "Was … etwas" with a correct explanation; caught "ja ich mag ihn sehr" →
+      "es" — only possible via the previous turn about *das* Mittelalter, so context works; also
+      caught the AI's own "Magst du Mittelalter?" → "das Mittelalter".
+
+- [ ] 20. Docker wiring (`docker-compose.yml`)
+      `vc2`: bind-mount the `claude` binary read-only, `env_file: .env` for
+      `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_BIN` pointing at the mount. Needs the user to run
+      `claude setup-token` and create `.env` first — ask, never handle the token.
+      Verify: `curl -X POST localhost:8010/api/check` with a two-turn history returns a parsed
+      result from inside the container.
+
+- [ ] 21. Front-end Check button (`ui/js/chat.js`, `ui/css/chat.css`)
+      Keep a client-side transcript (`{role, content}` per finished bubble, in order). Add a Check
+      button to `addHelpButtons`; on click, POST the transcript up to and including that bubble,
+      then render "✓ No mistakes" or one line per mistake (`wrong → right — why`) plus the
+      corrected line; retry label on failure, like Translate/Explain.
+      Verify: in Chrome, Check on a correct AI line shows no mistakes, and on a wrong user line
+      shows the mistake list.
+
+- [ ] 22. Docs (`CLAUDE.md`)
+      Architecture: Check is the one feature that calls out (Claude via `claude -p`), what context
+      it gets, the token/`.env` setup and what breaks if it expires (Check only; rest unaffected),
+      binary mount needing a container restart after a Claude Code update. Settled-decisions row:
+      local models for Check → Claude Sonnet (benchmark numbers).
+      Verify: re-read the section cold; every claim matches the code.

@@ -37,6 +37,14 @@ GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "gemma2:9b")
 # state needed, the UI just sends its chosen model with each request).
 EXPLAINER_MODEL = os.getenv("EXPLAINER_MODEL", "qwen2.5-coder:14b")
 
+# Check-on-demand: the one feature that leaves the machine. Runs Claude via
+# the `claude -p` CLI on the user's own subscription (not the API), because
+# every local model benchmarked either invented mistakes in correct German
+# or explained real ones wrongly — see docs/CHECKLIST.md "Check-on-demand".
+CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
+CHECK_MODEL = os.getenv("CHECK_MODEL", "sonnet")
+CHECK_TIMEOUT_S = 90
+
 # Free-text notes shown next to each model in the Setup screen's dropdowns —
 # past testing findings (e.g. which models are unreliable as a grammar
 # corrector) so they aren't lost tribal knowledge. Keyed by exact Ollama
@@ -476,6 +484,112 @@ async def explain_text(text: str, model: str) -> dict | None:
     return {"translation": translation, "notes": notes}
 
 
+CHECK_SYSTEM_PROMPT = (
+    "You are a German teacher checking one utterance written or spoken by a "
+    "learner. It may be a speech-to-text transcript. You may also be given "
+    "the conversation so far, for context only: check only the line marked "
+    "as the one to check.\n"
+    "Go through it carefully and find every real mistake: grammar, word "
+    "order, gender, case, conjugation, a wrong or extra word, a misspelling, "
+    "or a sentence that does not make sense as German.\n"
+    "Ignore capitalization and punctuation. Do not count style or word choice "
+    "as a mistake when the German is already correct and natural; particles "
+    'like "denn", "doch", "mal" are fine.\n'
+    "Reply in this exact format and nothing else:\n"
+    "Mistakes:\n"
+    "- <wrong part> → <correct part>: <one short sentence in English "
+    "explaining why>\n"
+    '(one line per mistake, or the single line "- none")\n'
+    "Corrected: <the full corrected utterance, or the original unchanged if "
+    "there are no mistakes>"
+)
+
+_CHECK_SPEAKER = {"user": "Learner", "assistant": "Conversation partner"}
+_CHECK_MISTAKE_LINE = re.compile(r"^-\s*(.+?)\s*→\s*(.+?):\s+(.+)$")
+
+
+def _build_check_message(history: list[dict]) -> str:
+    """Earlier turns as labeled context, then the last turn as the one to
+    check."""
+    *context, target = history
+    parts = []
+    if context:
+        lines = [f"{_CHECK_SPEAKER.get(t['role'], t['role'])}: {t['content']}" for t in context]
+        parts.append("Conversation so far (context only, do not check):\n" + "\n".join(lines))
+    speaker = _CHECK_SPEAKER.get(target["role"], target["role"])
+    parts.append(f"Line to check ({speaker}):\n{target['content']}")
+    return "\n\n".join(parts)
+
+
+def _parse_check_reply(reply: str) -> dict | None:
+    mistakes = []
+    corrected = None
+    for raw in reply.splitlines():
+        line = raw.strip()
+        if line.startswith("Corrected:"):
+            corrected = line[len("Corrected:") :].strip()
+        elif line.startswith("-"):
+            if line.lstrip("- ").lower().startswith("none"):
+                continue
+            m = _CHECK_MISTAKE_LINE.match(line)
+            if m:
+                mistakes.append({"wrong": m[1], "right": m[2], "why": m[3]})
+            else:
+                # Keep a mistake line that missed the "a → b: why" shape
+                # rather than silently dropping a real finding.
+                mistakes.append({"wrong": None, "right": None, "why": line.lstrip("- ")})
+    if corrected is None:
+        return None
+    return {"mistakes": mistakes, "corrected": corrected}
+
+
+async def check_text(history: list[dict]) -> dict | None:
+    """Checks the last turn of `history` (earlier turns are context) via
+    `claude -p` on CHECK_MODEL. Returns {"mistakes": [{"wrong", "right",
+    "why"}], "corrected": "..."} or None if the CLI is missing, fails, times
+    out, or replies in an unparseable shape."""
+    if not history:
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            CLAUDE_BIN,
+            "-p",
+            "--model",
+            CHECK_MODEL,
+            "--system-prompt",
+            CHECK_SYSTEM_PROMPT,
+            "--no-session-persistence",
+            "--tools",
+            "",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            # Outside the repo, so a host (non-Docker) run doesn't pick up
+            # this project's CLAUDE.md as context.
+            cwd="/tmp",
+        )
+    except OSError as e:
+        logger.error(f"Check: couldn't start {CLAUDE_BIN!r}: {e}")
+        return None
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(_build_check_message(history).encode()), CHECK_TIMEOUT_S
+        )
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        logger.error(f"Check: claude -p timed out after {CHECK_TIMEOUT_S}s")
+        return None
+    if proc.returncode != 0:
+        logger.error(f"Check: claude -p exited {proc.returncode}: {stderr.decode()[-500:]}")
+        return None
+    reply = stdout.decode().strip()
+    result = _parse_check_reply(reply)
+    if result is None:
+        logger.warning(f"Check: unparseable reply: {reply!r}")
+    return result
+
+
 async def run_user_turn(websocket: WebSocket, session_id, get_text):
     """Shared by the stop_recording (voice) and send_text (typed) websocket
     actions: handles the interrupt-in-progress case, then once we have the
@@ -761,6 +875,23 @@ async def list_models():
         "grammar_default": GRAMMAR_CHECK_MODEL,
         "explainer_default": EXPLAINER_MODEL,
     }
+
+
+class CheckTurn(BaseModel):
+    role: str
+    content: str
+
+
+class CheckRequest(BaseModel):
+    history: list[CheckTurn]
+
+
+@app.post("/api/check")
+async def check(req: CheckRequest):
+    result = await check_text([t.model_dump() for t in req.history])
+    if result is None:
+        raise HTTPException(status_code=502, detail="Couldn't get a check result from Claude")
+    return result
 
 
 class ExplainRequest(BaseModel):

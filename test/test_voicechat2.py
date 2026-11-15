@@ -914,3 +914,137 @@ def test_generate_llm_response_sends_grammar_check_for_assistant_turn(voicechat2
         "correct": False,
         "corrected": "Hallo!",
     }
+
+
+class _FakeProc:
+    def __init__(self, stdout=b"", returncode=0, hang=False):
+        self._stdout = stdout
+        self.returncode = returncode
+        self._hang = hang
+        self.stdin_data = b""
+        self.killed = False
+
+    async def communicate(self, data=None):
+        self.stdin_data = data
+        if self._hang:
+            await asyncio.sleep(10)
+        return self._stdout, b"some error"
+
+    def kill(self):
+        self.killed = True
+
+    async def wait(self):
+        return self.returncode
+
+
+def _stub_claude(voicechat2, monkeypatch, proc):
+    captured = {}
+
+    async def fake_exec(*args, **kwargs):
+        captured["args"] = args
+        return proc
+
+    monkeypatch.setattr(voicechat2.asyncio, "create_subprocess_exec", fake_exec)
+    return captured
+
+
+def test_check_text_parses_mistakes_and_sends_context(voicechat2, monkeypatch):
+    proc = _FakeProc(
+        stdout=(
+            "Mistakes:\n"
+            '- Was kannst du → Kannst du: "Was" is an extra word here.\n'
+            "- interessantes → Interessantes: Nominalized adjectives are capitalized.\n"
+            "\n"
+            "Corrected: Kannst du mir heute etwas Interessantes erzählen?\n"
+        ).encode()
+    )
+    captured = _stub_claude(voicechat2, monkeypatch, proc)
+    history = [
+        {"role": "assistant", "content": "Hallo! Was möchtest du heute machen?"},
+        {"role": "user", "content": "Was kannst du mir heute etwas interessantes erzählen?"},
+    ]
+
+    result = asyncio.run(voicechat2.check_text(history))
+
+    assert result == {
+        "mistakes": [
+            {"wrong": "Was kannst du", "right": "Kannst du", "why": '"Was" is an extra word here.'},
+            {
+                "wrong": "interessantes",
+                "right": "Interessantes",
+                "why": "Nominalized adjectives are capitalized.",
+            },
+        ],
+        "corrected": "Kannst du mir heute etwas Interessantes erzählen?",
+    }
+    sent = proc.stdin_data.decode()
+    assert "Conversation partner: Hallo! Was möchtest du heute machen?" in sent
+    assert sent.endswith(
+        "Line to check (Learner):\nWas kannst du mir heute etwas interessantes erzählen?"
+    )
+    assert "--system-prompt" in captured["args"]
+    assert "--no-session-persistence" in captured["args"]
+
+
+def test_check_text_none_means_no_mistakes(voicechat2, monkeypatch):
+    proc = _FakeProc(stdout=b"Mistakes:\n- none\nCorrected: Hallo, was hast du denn vor?")
+    _stub_claude(voicechat2, monkeypatch, proc)
+
+    result = asyncio.run(
+        voicechat2.check_text([{"role": "assistant", "content": "Hallo, was hast du denn vor?"}])
+    )
+
+    assert result == {"mistakes": [], "corrected": "Hallo, was hast du denn vor?"}
+    # Single-turn history: no context block, just the line to check.
+    assert "Conversation so far" not in proc.stdin_data.decode()
+
+
+def test_check_text_keeps_malformed_mistake_line(voicechat2, monkeypatch):
+    proc = _FakeProc(stdout=b"Mistakes:\n- missing verb at the end\nCorrected: Ich bin da.")
+    _stub_claude(voicechat2, monkeypatch, proc)
+
+    result = asyncio.run(voicechat2.check_text([{"role": "user", "content": "Ich da."}]))
+
+    assert result == {
+        "mistakes": [{"wrong": None, "right": None, "why": "missing verb at the end"}],
+        "corrected": "Ich bin da.",
+    }
+
+
+def test_check_text_returns_none_for_unparseable_reply(voicechat2, monkeypatch):
+    _stub_claude(voicechat2, monkeypatch, _FakeProc(stdout=b"Looks fine to me!"))
+
+    assert asyncio.run(voicechat2.check_text([{"role": "user", "content": "Hallo"}])) is None
+
+
+def test_check_text_returns_none_on_nonzero_exit(voicechat2, monkeypatch):
+    _stub_claude(voicechat2, monkeypatch, _FakeProc(returncode=1))
+
+    assert asyncio.run(voicechat2.check_text([{"role": "user", "content": "Hallo"}])) is None
+
+
+def test_check_text_returns_none_on_timeout(voicechat2, monkeypatch):
+    proc = _FakeProc(hang=True)
+    _stub_claude(voicechat2, monkeypatch, proc)
+    monkeypatch.setattr(voicechat2, "CHECK_TIMEOUT_S", 0.05)
+
+    assert asyncio.run(voicechat2.check_text([{"role": "user", "content": "Hallo"}])) is None
+    assert proc.killed
+
+
+def test_check_text_returns_none_when_cli_missing(voicechat2, monkeypatch):
+    async def missing(*args, **kwargs):
+        raise FileNotFoundError("claude")
+
+    monkeypatch.setattr(voicechat2.asyncio, "create_subprocess_exec", missing)
+
+    assert asyncio.run(voicechat2.check_text([{"role": "user", "content": "Hallo"}])) is None
+
+
+def test_check_endpoint_returns_502_on_failure(voicechat2, monkeypatch):
+    _stub_claude(voicechat2, monkeypatch, _FakeProc(returncode=1))
+    client = TestClient(voicechat2.app)
+
+    response = client.post("/api/check", json={"history": [{"role": "user", "content": "Hallo"}]})
+
+    assert response.status_code == 502
