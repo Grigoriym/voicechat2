@@ -52,6 +52,12 @@ returns each mistake with an English explanation plus the corrected line. The
 automatic ✓ badge and Translate/Explain stay one-sentence-only (user's call).
 Check and Claude mode are the only things that leave the machine.
 
+Ollama itself is installed by its official script (`/usr/local/bin/ollama`,
+`ollama.service` systemd unit); update by re-running `curl -fsSL
+https://ollama.com/install.sh | sh` — the user runs it (sudo). It was 0.15.6
+until 2026-11-15, too old for `gemma3`; now 0.40.x. The GPU has 16GB VRAM, so
+~12–14B models are the practical ceiling.
+
 Port 8000 (upstream's default for the orchestrator) is already held by
 something else on this machine, so this fork runs on **8010**.
 
@@ -135,6 +141,11 @@ ruff check . && ruff format .         # lint + format
 mypy .                                # type check
 pytest -q                             # unit tests, test/test_*.py
 ```
+
+Prompt changes (corrector, Check, Explain): re-run `scripts/bench_prompts.py`
+on the affected models before and after, and **read the printed outputs, not
+just the score** — see its docstring for the change that scored 16/16 while
+lowercasing every correction. Add new real-session failures to its `CASES`.
 
 `pre-commit run --all-files` runs the full set (ruff, mypy, plus generic
 whitespace/EOF/merge-conflict checks) without committing. The same set runs
@@ -283,6 +294,12 @@ Weighed and declined — don't re-propose these. Full rationale in the section n
   (`resumeMicMeter()`) on `blur`. If a future `<select>` (or similarly
   OS/compositor-rendered popup) gets added anywhere the meter loop is running,
   it needs the same focus/blur bracketing.
+- The Claude-in-Chrome extension is often not connected (2026-08-28, and twice
+  on 2026-11-15; it came back later in the same session). Call
+  `tabs_context_mcp` before planning a UI `Verify:` line; if it's down, verify
+  server-side (served files, endpoints), ask the user to check in the browser,
+  retry the extension later, and don't tick/commit a UI step on server-side
+  checks alone.
 - `claude -p … --tools ""` with the prompt as a positional argument after it
   fails ("Input must be provided…"): `--tools` takes a variadic list and
   swallows the prompt. Pass the input on stdin (what `_claude_args`/

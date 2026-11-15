@@ -79,6 +79,11 @@ MODEL_NOTES: dict[str, str] = {
     "qwen2.5-coder:14b": (
         "explainer default; cleanest format, most complete and accurate translations (tested)"
     ),
+    "gemma3:12b": (
+        "best local model on the Check benchmark (7/9) but explanations often wrong; "
+        "not tested as corrector/explainer"
+    ),
+    "mistral-nemo:12b": "Check benchmark 5/9, invents mistakes; not tested in other roles",
     "cas/discolm-mfto-german:latest": (
         "German-tuned, but weak as grammar corrector even at temperature 0 (tested)"
     ),
