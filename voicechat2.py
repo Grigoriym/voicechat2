@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import traceback
 import uuid
@@ -306,14 +307,38 @@ async def transcribe_audio(audio_data, session_id, turn_id):
         raise
 
 
+# Tuned against real-session sentences (see docs/revisit.md history): the
+# earlier "strict ... natural German" wording made gemma2:9b restyle correct
+# German ("denn" dropped, "sorry" -> "entschuldige"), add words that changed
+# the meaning ("deshalb"), and flag every lowercase speech transcript.
 GRAMMAR_CHECK_SYSTEM_PROMPT = (
-    "You are a strict German grammar checker. You will be given one short "
-    "German utterance from a spoken conversation. If it is grammatically "
-    "correct, natural German, reply with exactly: OK\n"
-    "If it has a grammar or word-order mistake, reply with exactly: "
-    "CORRECTED: <the corrected sentence>\n"
+    "You check German for a language learner. You will be given one utterance "
+    "from a spoken conversation, often a speech-to-text transcript.\n"
+    "Only fix real errors: grammar, word order, gender, case, conjugation, "
+    "wrong or misspelled words.\n"
+    "Do NOT change anything that is already correct German, even if you would "
+    'phrase it differently. "gerne" and "gern" are both correct; never swap one '
+    'for the other. Particles like "denn", "doch", "ja", "mal" and colloquial '
+    'words like "sorry" are correct; never remove them.\n'
+    "Ignore capitalization and punctuation completely; never count them as "
+    "errors.\n"
+    "Keep the speaker's words and meaning. Do not add, drop, or reword content, "
+    'do not add new connecting words like "deshalb" or "weil", and do not '
+    "invent words the speaker did not say.\n"
+    "If the utterance quotes another sentence, correct the speaker's own "
+    "sentence and leave the quote as quoted.\n"
+    "If there are no real errors, reply with exactly: OK\n"
+    "Otherwise reply with exactly: CORRECTED: <the full utterance with only the "
+    "errors fixed>\n"
     "Reply with nothing else, no explanation."
 )
+
+
+def _normalize_for_compare(text: str) -> str:
+    """Lowercase, punctuation stripped, whitespace collapsed — the prompt
+    tells the checker to ignore capitalization/punctuation, so a
+    "correction" that only differs in those is no correction."""
+    return re.sub(r"[^\w]+", " ", text.lower()).strip()
 
 
 async def check_grammar(text: str, model: str = GRAMMAR_CHECK_MODEL) -> dict | None:
@@ -347,10 +372,11 @@ async def check_grammar(text: str, model: str = GRAMMAR_CHECK_MODEL) -> dict | N
         return {"correct": True, "corrected": None}
     if reply.startswith("CORRECTED:"):
         corrected = reply[len("CORRECTED:") :].strip()
-        if corrected == text.strip():
-            # Model sometimes echoes the input verbatim under "CORRECTED:"
-            # instead of replying "OK" — treat that as correct so the UI
-            # doesn't show a no-op "correction" that just repeats the text.
+        if _normalize_for_compare(corrected) == _normalize_for_compare(text):
+            # Model sometimes echoes the input under "CORRECTED:" (verbatim or
+            # with only capitalization/punctuation changed) instead of
+            # replying "OK" — treat that as correct so the UI doesn't show a
+            # no-op "correction" that just repeats the text.
             return {"correct": True, "corrected": None}
         return {"correct": False, "corrected": corrected}
     logger.warning(f"Unparseable grammar-check reply: {reply!r}")

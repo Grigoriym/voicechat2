@@ -440,6 +440,21 @@ def test_check_grammar_treats_verbatim_echo_as_correct(voicechat2, monkeypatch):
     assert result == {"correct": True, "corrected": None}
 
 
+def test_check_grammar_treats_case_and_punctuation_only_echo_as_correct(voicechat2, monkeypatch):
+    # Speech transcripts arrive lowercase without punctuation; a "correction"
+    # that only adds those back isn't a grammar correction.
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [{"message": {"content": "CORRECTED: Mir geht es gut, danke."}}]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.check_grammar("mir geht es gut danke"))
+
+    assert result == {"correct": True, "corrected": None}
+
+
 def test_check_grammar_returns_none_for_unparseable_reply(voicechat2, monkeypatch):
     responses = {
         ("POST", "http://localhost:11434/v1/chat/completions"): {
