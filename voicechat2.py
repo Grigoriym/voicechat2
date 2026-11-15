@@ -35,7 +35,7 @@ GRAMMAR_CHECK_MODEL = os.getenv("GRAMMAR_CHECK_MODEL", "gemma2:9b")
 # translation + brief notes for that turn, via a separate, user-selectable
 # model (unlike grammar-check, this isn't fired automatically — no session
 # state needed, the UI just sends its chosen model with each request).
-EXPLAINER_MODEL = os.getenv("EXPLAINER_MODEL", "llama3.1:8b")
+EXPLAINER_MODEL = os.getenv("EXPLAINER_MODEL", "qwen2.5-coder:14b")
 
 # Free-text notes shown next to each model in the Setup screen's dropdowns —
 # past testing findings (e.g. which models are unreliable as a grammar
@@ -43,15 +43,19 @@ EXPLAINER_MODEL = os.getenv("EXPLAINER_MODEL", "llama3.1:8b")
 # model name; a model with no entry here just shows unadorned in the UI.
 MODEL_NOTES: dict[str, str] = {
     "llama3.1:8b": (
-        "conversation + explainer default; weak as grammar corrector; ignores the "
-        "explain format but content is still usable (all tested)"
+        "conversation default; weak as grammar corrector; weak explainer, can drop "
+        "half a long translation (all tested)"
     ),
     "gemma2:9b": (
-        "grammar-check default; catches real errors reliably; ignores the explain "
-        "format but content is still usable (all tested)"
+        "grammar-check default; catches real errors reliably; explainer notes can "
+        "invent words the speaker never said (all tested)"
     ),
-    "mistral:7b": "weak as grammar corrector; follows the explain format cleanly (tested)",
-    "qwen2.5-coder:14b": "follows the explain format cleanly (tested)",
+    "mistral:7b": (
+        "weak as grammar corrector; explainer translates fully but notes can be made up (tested)"
+    ),
+    "qwen2.5-coder:14b": (
+        "explainer default; cleanest format, most complete and accurate translations (tested)"
+    ),
     "cas/discolm-mfto-german:latest": (
         "German-tuned, but weak as grammar corrector even at temperature 0 (tested)"
     ),
@@ -415,6 +419,9 @@ EXPLAIN_SYSTEM_PROMPT = (
 )
 
 
+_EXPLAIN_NOTES_MARKER = re.compile(r"(?:Translation\s+)?Notes:", re.IGNORECASE)
+
+
 async def explain_text(text: str, model: str) -> dict | None:
     """Translates + briefly annotates one utterance via `model`. Returns
     {"translation": "...", "notes": "..."}, or None if the request failed or
@@ -446,31 +453,27 @@ async def explain_text(text: str, model: str) -> dict | None:
         logger.error(f"Explain error: {str(e)}")
         return None
 
-    translation = None
-    notes = None
-    for line in reply.splitlines():
-        if line.startswith("Translation:"):
-            translation = line[len("Translation:") :].strip()
-        elif line.startswith("Notes:"):
-            notes = line[len("Notes:") :].strip()
-
-    if translation is not None:
-        return {"translation": translation, "notes": notes or ""}
-
-    # Several models (see MODEL_NOTES) ignore the "Translation:/Notes:"
-    # instruction and just reply with the translation, then optionally a
-    # blank line and an explanatory sentence — still useful, so fall back to
-    # treating the first line as the translation and the rest as notes
-    # rather than failing outright on a perfectly good reply.
     if not reply:
         return None
-    first_line, _, rest = reply.partition("\n")
-    notes = rest.strip()
-    if notes.startswith("Notes:"):
-        notes = notes[len("Notes:") :].strip()
-    if notes.lower() == "none":
+
+    # Split at the first "Notes:" marker wherever it is — models put it on
+    # its own line, inline after a multi-line translation ("...tasks?
+    # Notes: None"), or as "Translation Notes:" (mistral:7b). Without a
+    # marker, fall back to first line = translation, rest = notes: several
+    # models (see MODEL_NOTES) skip the labels but still give a usable reply.
+    marker = _EXPLAIN_NOTES_MARKER.search(reply)
+    if marker:
+        translation, notes = reply[: marker.start()], reply[marker.end() :]
+    else:
+        translation, _, notes = reply.partition("\n")
+    translation = " ".join(translation.split())
+    if translation.lower().startswith("translation:"):
+        translation = translation[len("translation:") :].strip()
+    notes = notes.strip()
+    # "None", or "None (some aside)", means nothing notable.
+    if notes.lower().startswith("none"):
         notes = ""
-    return {"translation": first_line.strip(), "notes": notes}
+    return {"translation": translation, "notes": notes}
 
 
 async def run_user_turn(websocket: WebSocket, session_id, get_text):

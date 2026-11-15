@@ -591,6 +591,56 @@ def test_explain_text_fallback_strips_stray_notes_prefix(voicechat2, monkeypatch
     }
 
 
+def test_explain_text_handles_inline_notes_after_multiline_translation(voicechat2, monkeypatch):
+    # Real llama3.1:8b reply: unlabeled two-line translation with "Notes: None"
+    # tacked onto the end of the second line, which used to leak into notes.
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Ah yes, triple sum! You really have to look closely at that one.\n"
+                            "Why don't you like these kinds of tasks? Notes: None"
+                        )
+                    }
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("...", "some-model"))
+
+    assert result == {
+        "translation": (
+            "Ah yes, triple sum! You really have to look closely at that one. "
+            "Why don't you like these kinds of tasks?"
+        ),
+        "notes": "",
+    }
+
+
+def test_explain_text_handles_translation_notes_label(voicechat2, monkeypatch):
+    # mistral:7b sometimes writes "Translation Notes:" instead of "Notes:".
+    responses = {
+        ("POST", "http://localhost:11434/v1/chat/completions"): {
+            "choices": [
+                {
+                    "message": {
+                        "content": (" That's great!\nTranslation Notes: Informal way to say it.")
+                    }
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(voicechat2.aiohttp, "ClientSession", _fake_client_session(responses))
+
+    result = asyncio.run(voicechat2.explain_text("Das ist doch super!", "some-model"))
+
+    assert result == {"translation": "That's great!", "notes": "Informal way to say it."}
+
+
 def test_explain_text_returns_none_for_empty_reply(voicechat2, monkeypatch):
     responses = {
         ("POST", "http://localhost:11434/v1/chat/completions"): {
@@ -634,7 +684,7 @@ def test_explain_endpoint_returns_translation_and_notes(voicechat2, monkeypatch)
     response = client.post("/api/explain", json={"text": "Hallo!", "model": "some-model"})
 
     assert response.status_code == 200
-    assert response.json() == {"translation": "Hello!", "notes": "none"}
+    assert response.json() == {"translation": "Hello!", "notes": ""}
 
 
 def test_explain_endpoint_returns_502_on_empty_reply(voicechat2, monkeypatch):
