@@ -30,6 +30,28 @@ def test_whisper_webservice_engine_strips_result_text(srt_server, monkeypatch):
     assert segments == []
 
 
+def test_whisper_webservice_engine_enables_vad_filter(srt_server, monkeypatch):
+    engine = srt_server.WhisperWebserviceEngine()
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"text": "", "segments": []}
+
+    def fake_post(url, params=None, **kwargs):
+        captured["params"] = params
+        return FakeResponse()
+
+    monkeypatch.setattr(engine._requests, "post", fake_post)
+
+    engine.transcribe(file=None, audio_content=b"fake")
+
+    assert captured["params"]["vad_filter"] == "true"
+
+
 def test_whisper_webservice_engine_missing_text_key_returns_empty_string(srt_server, monkeypatch):
     engine = srt_server.WhisperWebserviceEngine()
 

@@ -145,7 +145,12 @@ class WhisperWebserviceEngine(TranscriptionEngine):
         self.language = os.getenv("WHISPER_LANGUAGE", "de")
 
     def transcribe(self, file, audio_content, **kwargs):
-        params = {"output": "json"}
+        # vad_filter: without it, silence/background noise comes back as
+        # Whisper's stock hallucinations ("Untertitelung des ZDF, 2020",
+        # "Vielen Dank.") and gets sent to the LLM as if the user said it.
+        # With it, those return "" (the existing empty-text path) while real
+        # speech transcribes unchanged — tested against both.
+        params = {"output": "json", "vad_filter": "true"}
         if self.language:
             params["language"] = self.language
         files = {"audio_file": ("audio.opus", audio_content, "audio/ogg")}
