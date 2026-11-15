@@ -19,6 +19,8 @@
                 <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
             </div>
 
+            <div id="conversationLog" class="card"></div>
+
             <div class="card controls-card">
                 <div class="meter-wrap">
                     <div class="meter-label">Microphone level</div>
@@ -43,7 +45,8 @@
                 </div>
             </div>
 
-            <details id="latencyMetrics" class="card">
+            <!-- Hidden: still populated by chat.js, just not shown. -->
+            <details id="latencyMetrics" class="card" hidden>
                 <summary>Debug: latency metrics</summary>
                 <table>
                     <tr>
@@ -77,9 +80,7 @@
                 </table>
             </details>
 
-            <div id="conversationLog" class="card"></div>
-
-            <details id="debugLog" class="card">
+            <details id="debugLog" class="card" hidden>
                 <summary>Debug: log</summary>
                 <div id="logArea"></div>
             </details>

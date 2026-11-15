@@ -28,6 +28,9 @@ actual talking. Decided up front (2026-08-28), don't re-litigate:
   simpler mental model.
 - **Latency metrics stay**, moved into a `<details>` "Debug" panel on the conversation screen,
   collapsed by default.
+  Update (2026-11-15): both debug panels (latency metrics + log) are now `hidden` in `chat.html`
+  at the user's request — never looked at. Still populated by `chat.js`; drop `hidden` to bring
+  them back.
 - **Built-in scenarios are read-only.** Editing one clones it into a new custom scenario
   first; the original preset can't be edited or deleted, only cloned. Custom scenarios are
   fully editable/deletable.

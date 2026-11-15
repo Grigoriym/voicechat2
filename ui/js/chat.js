@@ -68,6 +68,9 @@ let currentAIResponse = "";
 let aiMessageElement = null;
 let isAIResponding = false;
 let currentTurn = null;
+// TTS audio blobs received for the AI reply currently streaming in, kept so
+// its bubble's Repeat button can replay them once the turn completes.
+let currentAIAudio = [];
 
 // Chat bubbles, keyed by `${turn}-${role}` (role matches the server's
 // grammar_check "user"/"assistant", not the display label) so a later
@@ -582,6 +585,7 @@ function initializeWebSocketAsync() {
         socket.onmessage = (event) => {
             log(`Received message from server: ${typeof event.data}`);
             if (event.data instanceof Blob) {
+                currentAIAudio.push(event.data);
                 queueAudioForPlayback(event.data);
             } else {
                 try {
@@ -600,6 +604,7 @@ function initializeWebSocketAsync() {
                         currentTurn = message.turn;
                         displayMessage("user", message.content, currentTurn);
                         currentAIResponse = "";
+                        currentAIAudio = [];
                         aiMessageElement = null;
                         isAIResponding = true;
                     } else if (message.type === "grammar_check") {
@@ -614,7 +619,7 @@ function initializeWebSocketAsync() {
                             const cursor = aiMessageElement.querySelector(".ai-cursor");
                             if (cursor) cursor.remove();
                             if (currentAIResponse) {
-                                addExplainButton(aiMessageElement, currentAIResponse);
+                                addHelpButtons(aiMessageElement, currentAIResponse, currentAIAudio);
                             }
                         }
                     } else if (message.type === "error") {
@@ -654,57 +659,104 @@ function displayMessage(role, content, turn) {
     body.textContent = `${ROLE_LABEL[role] || role}: ${content}`;
     messageElement.appendChild(body);
     // The user's full turn is known immediately (unlike the assistant's,
-    // which streams in) — its Explain button can go on right away instead
-    // of waiting for processing_complete.
+    // which streams in) — its Translate/Explain buttons can go on right away
+    // instead of waiting for processing_complete.
     if (role === "user") {
-        addExplainButton(messageElement, content);
+        addHelpButtons(messageElement, content);
     }
     conversationLog.appendChild(messageElement);
     conversationLog.scrollTop = conversationLog.scrollHeight;
     return messageElement;
 }
 
-// Adds an "Explain" button to a chat bubble that, on click, POSTs the
-// turn's full text to /api/explain (using the Setup screen's chosen
-// explainer model) and replaces itself with the translation + notes.
-function addExplainButton(element, text) {
+// Adds Translate / Explain buttons to a chat bubble, plus Repeat when the
+// bubble has TTS audio (AI replies). Translate and Explain share one
+// /api/explain request (using the Setup screen's chosen explainer model),
+// fetched on whichever is clicked first and reused by the other; each
+// button shows only its half of the result.
+function addHelpButtons(element, text, audioBlobs) {
+    const bar = document.createElement("span");
+    bar.className = "help-buttons";
+    let explainRequest = null;
+    const getExplanation = () => {
+        if (!explainRequest) {
+            explainRequest = fetchExplanation(text).catch((error) => {
+                explainRequest = null; // let a retry click re-request
+                throw error;
+            });
+        }
+        return explainRequest;
+    };
+
+    if (audioBlobs && audioBlobs.length) {
+        const blobs = audioBlobs.slice();
+        bar.appendChild(
+            makeHelpButton("🔁 Repeat", () => {
+                blobs.forEach(queueAudioForPlayback);
+            })
+        );
+    }
+
+    const translateBtn = makeHelpButton("Translate", () =>
+        revealHelp(
+            element,
+            translateBtn,
+            "Translate",
+            getExplanation,
+            (data) => `→ ${data.translation}`,
+            "explain-translation"
+        )
+    );
+    const explainBtn = makeHelpButton("Explain", () =>
+        revealHelp(
+            element,
+            explainBtn,
+            "Explain",
+            getExplanation,
+            (data) => (data.notes && data.notes.toLowerCase() !== "none" ? data.notes : "Nothing notable to explain."),
+            "explain-notes"
+        )
+    );
+    bar.appendChild(translateBtn);
+    bar.appendChild(explainBtn);
+    element.appendChild(bar);
+}
+
+function makeHelpButton(label, onClick) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "explain-btn";
-    btn.textContent = "Explain";
-    btn.addEventListener("click", () => runExplain(element, btn, text));
-    element.appendChild(btn);
+    btn.textContent = label;
+    btn.addEventListener("click", onClick);
+    return btn;
 }
 
-async function runExplain(element, btn, text) {
-    btn.disabled = true;
-    btn.textContent = "Explaining…";
-    try {
-        const resp = await fetch("/api/explain", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, model: explainerModelId }),
-        });
-        if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
-        const data = await resp.json();
+async function fetchExplanation(text) {
+    const resp = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, model: explainerModelId }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    return resp.json();
+}
 
+// Runs (or reuses) the shared explain request, then removes the clicked
+// button and appends its part of the result under the bubble.
+async function revealHelp(element, btn, label, getExplanation, pick, className) {
+    btn.disabled = true;
+    btn.textContent = `${label}…`;
+    try {
+        const data = await getExplanation();
         const note = document.createElement("div");
-        note.className = "explain-note";
-        const translation = document.createElement("span");
-        translation.className = "explain-translation";
-        translation.textContent = `→ ${data.translation}`;
-        note.appendChild(translation);
-        if (data.notes && data.notes.toLowerCase() !== "none") {
-            const notes = document.createElement("span");
-            notes.className = "explain-notes";
-            notes.textContent = data.notes;
-            note.appendChild(notes);
-        }
-        btn.replaceWith(note);
+        note.className = `explain-note ${className}`;
+        note.textContent = pick(data);
+        element.appendChild(note);
+        btn.remove();
     } catch (error) {
         btn.disabled = false;
-        btn.textContent = "Explain (retry)";
-        log(`Explain failed: ${error.message}`);
+        btn.textContent = `${label} (retry)`;
+        log(`${label} failed: ${error.message}`);
     }
 }
 
