@@ -219,6 +219,7 @@ async function loadModels() {
         {
             select: document.getElementById("modelSelect"),
             statusId: "modelStatus",
+            storageKey: MODEL_STORAGE_KEY,
             defaultKey: "default",
             get: () => selectedModel,
             set: (v) => {
@@ -228,6 +229,7 @@ async function loadModels() {
         {
             select: document.getElementById("grammarModelSelect"),
             statusId: "grammarModelStatus",
+            storageKey: GRAMMAR_MODEL_STORAGE_KEY,
             defaultKey: "grammar_default",
             get: () => selectedGrammarModel,
             set: (v) => {
@@ -237,6 +239,7 @@ async function loadModels() {
         {
             select: document.getElementById("explainerModelSelect"),
             statusId: "explainerModelStatus",
+            storageKey: EXPLAINER_MODEL_STORAGE_KEY,
             defaultKey: "explainer_default",
             get: () => selectedExplainerModel,
             set: (v) => {
@@ -262,8 +265,10 @@ async function loadModels() {
                 if (model.name === picker.get()) opt.selected = true;
                 picker.select.appendChild(opt);
             }
-            document.getElementById(picker.statusId).textContent =
-                `active: ${data[picker.defaultKey]}`;
+            // Was "active: <server default>", which read as the current
+            // choice and contradicted the dropdown. The dropdown is the
+            // source of truth; this line is only for load errors now.
+            document.getElementById(picker.statusId).textContent = "";
         }
     } catch (error) {
         for (const picker of pickers) {
@@ -276,6 +281,12 @@ async function loadModels() {
     for (const picker of pickers) {
         picker.select.addEventListener("change", () => {
             picker.set(picker.select.value || null);
+            // Saved immediately, not only on Start, so a refresh keeps the
+            // choice instead of reverting to the last-started one.
+            if (picker.select.value) {
+                sessionStorage.setItem(picker.storageKey, picker.select.value);
+                localStorage.setItem(picker.storageKey, picker.select.value);
+            }
             updateStartButton();
         });
         picker.select.addEventListener("focus", pauseMicMeter);
