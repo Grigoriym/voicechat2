@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 1/4 — Current step: 20
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 2/4 — Current step: 21
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -623,12 +623,18 @@ Prompt (validated, see the benchmark above; the conversation-context wrapper is 
       "es" — only possible via the previous turn about *das* Mittelalter, so context works; also
       caught the AI's own "Magst du Mittelalter?" → "das Mittelalter".
 
-- [ ] 20. Docker wiring (`docker-compose.yml`)
+- [x] 20. Docker wiring (`docker-compose.yml`)
       `vc2`: bind-mount the `claude` binary read-only, `env_file: .env` for
       `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_BIN` pointing at the mount. Needs the user to run
       `claude setup-token` and create `.env` first — ask, never handle the token.
       Verify: `curl -X POST localhost:8010/api/check` with a two-turn history returns a parsed
       result from inside the container.
+      Note: mounted the two directories (`~/.local/bin`, `~/.local/share/claude`, read-only, at their
+      host paths) instead of the single binary — `claude` is a symlink into a versioned dir, and a
+      single-file bind mount would pin the old version after a Claude Code self-update.
+      `DISABLE_AUTOUPDATER=1` since the mount is read-only. Interactive login is not mounted, so the
+      `.env` token is the only auth path. Verified: two-turn "ihn → es" history returned the parsed
+      result from the container in 2.8s.
 
 - [ ] 21. Front-end Check button (`ui/js/chat.js`, `ui/css/chat.css`)
       Keep a client-side transcript (`{role, content}` per finished bubble, in order). Add a Check

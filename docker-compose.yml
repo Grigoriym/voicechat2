@@ -34,6 +34,18 @@ services:
       LLM_MODEL: llama3.1:8b
       OLLAMA_BASE: http://localhost:11434
       TTS_ENDPOINT: http://localhost:8003/tts
+      # Check-on-demand runs Claude via the `claude` CLI on the user's own
+      # subscription (see CLAUDE.md). ~/.local/bin/claude is a symlink into
+      # ~/.local/share/claude/versions/, so both dirs are mounted at their
+      # host paths: the symlink resolves, and a Claude Code self-update on
+      # the host is picked up without rebuilding.
+      CLAUDE_BIN: /home/gregory/.local/bin/claude
+      DISABLE_AUTOUPDATER: "1"
+    # CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token` (git-ignored).
+    env_file: .env
+    volumes:
+      - /home/gregory/.local/bin:/home/gregory/.local/bin:ro
+      - /home/gregory/.local/share/claude:/home/gregory/.local/share/claude:ro
     depends_on:
       - srt
       - tts
