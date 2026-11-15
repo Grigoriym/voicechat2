@@ -441,6 +441,8 @@ async def complete(model: str, system_prompt: str, user_text: str) -> str | None
 # earlier "strict ... natural German" wording made gemma2:9b restyle correct
 # German ("denn" dropped, "sorry" -> "entschuldige"), add words that changed
 # the meaning ("deshalb"), and flag every lowercase speech transcript.
+# "Ignore capitalization" alone then made it write its corrections all
+# lowercase too, so it's told to ignore them only when deciding.
 GRAMMAR_CHECK_SYSTEM_PROMPT = (
     "You check German for a language learner. You will be given one utterance "
     "from a spoken conversation, often a speech-to-text transcript.\n"
@@ -450,16 +452,17 @@ GRAMMAR_CHECK_SYSTEM_PROMPT = (
     'phrase it differently. "gerne" and "gern" are both correct; never swap one '
     'for the other. Particles like "denn", "doch", "ja", "mal" and colloquial '
     'words like "sorry" are correct; never remove them.\n'
-    "Ignore capitalization and punctuation completely; never count them as "
-    "errors.\n"
+    "Ignore capitalization and punctuation when deciding whether there is an "
+    "error; never count them as errors. But when you write a corrected "
+    "sentence, write it with correct German capitalization and punctuation.\n"
     "Keep the speaker's words and meaning. Do not add, drop, or reword content, "
     'do not add new connecting words like "deshalb" or "weil", and do not '
     "invent words the speaker did not say.\n"
     "If the utterance quotes another sentence, correct the speaker's own "
     "sentence and leave the quote as quoted.\n"
     "If there are no real errors, reply with exactly: OK\n"
-    "Otherwise reply with exactly: CORRECTED: <the full utterance with only the "
-    "errors fixed>\n"
+    "Otherwise reply with exactly: CORRECTED: <the full utterance with the "
+    "errors fixed, properly capitalized and punctuated>\n"
     "Reply with nothing else, no explanation."
 )
 

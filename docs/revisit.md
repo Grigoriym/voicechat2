@@ -24,14 +24,3 @@ and POST the `/tmp/<session>-<turn>.opus` file to `localhost:9001/asr` directly.
 **Don't use `initial_prompt`** as the fix — tested 2026-11-15: with a punctuated German prompt,
 Whisper dropped the clip's first sentence ("Mir geht es gut, danke.") because it overlapped the
 prompt's wording, and on pure silence it output the prompt text itself ("Ich übe Deutsch.").
-
-## 2. Corrector output sometimes comes back all-lowercase
-
-Seen 2026-11-15 after the corrector prompt change (`ff1183b`, "Ignore capitalization and
-punctuation completely"): for the AI turn "Klar, gern! Was interessiert dich denn besonders an der
-Geschichte? HISTORICAL FICTION MAG SCHLAGWORTE ?" `gemma2:9b` returned `CORRECTED: klar gern was
-interessiert dich denn besonders an der geschichte historisches fiction mag schlagworte` — it
-flagged the garbage correctly but stripped all capitals/punctuation from the shown correction.
-Likely fix: tell it to ignore capitalization/punctuation when *deciding*, but write the corrected
-sentence with proper German capitalization and punctuation. Re-run the scratch bench sentences
-after changing it.
