@@ -1,6 +1,6 @@
 # CHECKLIST
 
-Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 5/6 — Current step: 24
+Progress: UI rework 12/12 (done); grammar-check pass 3/3 (done); backlog 3/3 (done); Check-on-demand 6/6 (done) — Current step: none
 
 Executable plan for larger, multi-step changes (the upcoming UI work, mainly) — not required
 for a one-off fix or a single well-scoped feature, which can just be done directly. Numbered,
@@ -697,9 +697,13 @@ Prompt (validated, see the benchmark above; the conversation-context wrapper is 
       line showed "✓ No mistakes"; Translate worked. Restored the user's saved provider/picks
       afterwards.
 
-- [ ] 24. Docs (`CLAUDE.md`)
+- [x] 24. Docs (`CLAUDE.md`)
       Architecture: Check is the one feature that calls out (Claude via `claude -p`), what context
       it gets, the token/`.env` setup and what breaks if it expires (Check only; rest unaffected),
       binary mount needing a container restart after a Claude Code update. Settled-decisions row:
       local models for Check → Claude Sonnet (benchmark numbers).
       Verify: re-read the section cold; every claim matches the code.
+      Note: also added Settled-decisions rows for "Anthropic API", "`--bare`" and Whisper
+      `initial_prompt`, and two Gotchas (`--tools` swallowing a positional prompt; Chrome caching
+      `ui/` after a rebuild). Re-read against the code: prefix routing, flags, `cwd=/tmp`, mounts,
+      `DISABLE_AUTOUPDATER`, `.env` token, 502/400 behavior all match.

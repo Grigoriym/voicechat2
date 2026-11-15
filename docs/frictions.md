@@ -15,3 +15,7 @@ not a fourth line here.
   a brace-balance check on the CSS) and left a `Note:` on the checklist step saying the visual
   check is still owed. Check `tabs_context_mcp` early in a UI-heavy session before assuming the
   browser tools are available.
+- 2026-11-15: `claude -p --tools "" "<prompt>"` failed ("Input must be provided…") — `--tools` swallowed the positional prompt; switched to stdin (now a CLAUDE.md Gotcha).
+- 2026-11-15: `curl -G -X POST … -F file=@…` to the whisper `/asr` endpoint returned a non-JSON body — `-G` and `-F` don't combine; put the query string in the URL instead.
+- 2026-11-15: Claude-in-Chrome extension disconnected twice mid-session; UI verification had to wait until it reconnected.
+- 2026-11-15: Chrome served cached `ui/` files after a container rebuild, twice (Setup "active:" line still showing; Setup stuck at "loading…") — needed a hard reload (now a CLAUDE.md Gotcha).

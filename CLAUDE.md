@@ -31,6 +31,27 @@ dropdown, and a `{"action": "set_model", "model": "..."}` websocket message
 updates `conversation_manager.sessions[id]["model"]`, read fresh by
 `generate_llm_response` on every turn. `LLM_MODEL` is only the default.
 
+**Claude is the other model provider.** Setup has a Local (Ollama) / Claude
+switch that picks the provider for the conversation partner, grammar
+corrector and Explain at once. Claude models travel through the same model
+strings as `claude:<alias>` (`claude:haiku` / `claude:sonnet` / `claude:opus`,
+listed by `/api/models` as `claude_models`), and `is_claude()` routes them to
+the `claude -p` CLI on the **user's own subscription** — not the Anthropic API,
+no separate billing. Every call is a fresh, stateless `claude -p` process:
+`--system-prompt` (replaces Claude Code's default), `--tools ""`,
+`--no-session-persistence`, input on stdin, `cwd=/tmp` (so a host run doesn't
+load this repo's CLAUDE.md). The conversation streams via `--output-format
+stream-json --include-partial-messages` (first text ~1s haiku / ~1.5s sonnet)
+and gets the history as a labeled transcript, since `claude -p` takes one
+prompt, not a message list. Usage counts against the plan's limits.
+
+**Check** (button on every chat bubble, `POST /api/check`) always runs on
+Claude, in Local mode too — no local model was good enough (see Settled
+decisions). It gets the conversation up to the clicked line as context and
+returns each mistake with an English explanation plus the corrected line. The
+automatic ✓ badge and Translate/Explain stay one-sentence-only (user's call).
+Check and Claude mode are the only things that leave the machine.
+
 Port 8000 (upstream's default for the orchestrator) is already held by
 something else on this machine, so this fork runs on **8010**.
 
@@ -78,6 +99,18 @@ standard glibc/libstdc++), so mounting avoids duplicating the model file.
 editing anything under `ui/` needs `docker compose up -d --build vc2` (or a
 full `--build`) before it's visible at `localhost:8010`; a plain restart
 won't pick it up.
+
+Claude in the container: `vc2` bind-mounts `~/.local/bin` and
+`~/.local/share/claude` read-only **at their host paths** (`claude` is a
+symlink into a versioned dir; a single-file mount would pin the old version
+after a Claude Code self-update), with `DISABLE_AUTOUPDATER=1`. Auth is only
+`CLAUDE_CODE_OAUTH_TOKEN` from the git-ignored `.env` (mode 600), created by
+the user with `claude setup-token` — long-lived, unlike the interactive login,
+which expires within days. The interactive login is deliberately not mounted.
+If the token expires or is revoked, Claude mode and Check fail (502 / LLM
+error in the logs); Local mode keeps working. Fix: the user re-runs `claude
+setup-token`, replaces the line in `.env`, then `docker compose up -d vc2`.
+Never read or print the token.
 
 **Manual (`.venv`, for local dev/debugging):**
 
@@ -217,6 +250,10 @@ Weighed and declined — don't re-propose these. Full rationale in the section n
 | `symbl-opus-encdec` for push-to-talk | Browser-native `MediaRecorder` | Upstream CDN dependency is broken/unmaintained (403s), caused silent 0-byte recordings — "Client-side recording" |
 | llama.cpp + local GGUF model | Ollama's OpenAI-compatible endpoint | Ollama was already running on this machine; no local GGUF build to maintain — "Diverged from upstream" |
 | HF Transformers Whisper in-process | `WhisperWebserviceEngine` bridging to the already-running Whisper container | Avoids loading a second Whisper model into memory — "Architecture" |
+| A local model for Check | Claude Sonnet via `claude -p` | Same prompt, 9 real-session sentences (2026-11-15): gemma3:12b 7/9, qwen2.5-coder:14b 6/9, gemma2:9b 5/9, mistral-nemo:12b 5/9 — invented mistakes in correct German or explained real ones wrongly; Haiku 7/9; Sonnet 9/9 with correct explanations — `docs/CHECKLIST.md` "Check-on-demand" |
+| Anthropic API for Claude | `claude -p` on the user's subscription | User's choice: no separate billing account; personal use on this machine only — would have to move to the API if the app were ever shared — "Architecture" |
+| `claude -p --bare` | Individual isolation flags | `--bare` refuses subscription (OAuth) auth — "Architecture" |
+| Whisper `initial_prompt` for punctuation | Nothing yet (`docs/revisit.md`) | Tested: dropped speech overlapping the prompt's wording, and echoed the prompt on silence |
 
 ## Gotchas
 
@@ -246,3 +283,11 @@ Weighed and declined — don't re-propose these. Full rationale in the section n
   (`resumeMicMeter()`) on `blur`. If a future `<select>` (or similarly
   OS/compositor-rendered popup) gets added anywhere the meter loop is running,
   it needs the same focus/blur bracketing.
+- `claude -p … --tools ""` with the prompt as a positional argument after it
+  fails ("Input must be provided…"): `--tools` takes a variadic list and
+  swallows the prompt. Pass the input on stdin (what `_claude_args`/
+  `_spawn_claude` do).
+- After `docker compose up -d --build vc2`, Chrome kept serving the old
+  `ui/` HTML/JS from cache — the new `setup.js` against old HTML left Setup
+  stuck at "loading…". A hard reload (Ctrl+Shift+R) fixes it; tell the user
+  to do that after any UI change.
